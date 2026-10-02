@@ -130,6 +130,7 @@ jobs:
     needs: asset-plan
     if: needs.asset-plan.outputs.macos-needed == 'true'
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -207,8 +208,8 @@ jobs:
           done
           architecture='${{ matrix.arch }}'
           if [ "$architecture" = 'x64' ]; then architecture='x86_64'; fi
-          lipo -verify_arch "$architecture" "target/${{ matrix.target }}/release/codex-plus-plus"
-          lipo -verify_arch "$architecture" "target/${{ matrix.target }}/release/codex-plus-plus-manager"
+          lipo "target/${{ matrix.target }}/release/codex-plus-plus" -verify_arch "$architecture"
+          lipo "target/${{ matrix.target }}/release/codex-plus-plus-manager" -verify_arch "$architecture"
           for dmg in dist/macos/*.dmg; do hdiutil verify "$dmg"; done
 
       - name: Record macOS build checksums and provenance
