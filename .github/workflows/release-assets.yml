@@ -3,6 +3,20 @@ name: Release assets
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build missing installers for
+        required: true
+        type: string
+        default: v1.5.0-canvaspro.1
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+concurrency:
+  group: canvaspro-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -20,9 +34,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: |
           set -euo pipefail
+          if [[ ! "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+            echo 'error: invalid release tag' >&2
+            exit 1
+          fi
+          gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.sha'
           version="${TAG#v}"
           version="${version#V}"
           gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' > assets.txt
@@ -45,7 +64,7 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -79,7 +98,7 @@ jobs:
       - name: Build Windows zip asset
         shell: pwsh
         run: |
-          $version = "${{ github.event.release.tag_name }}".TrimStart("v", "V")
+          $version = "${{ env.RELEASE_TAG }}".TrimStart("v", "V")
           New-Item -ItemType Directory -Force dist/windows | Out-Null
           Copy-Item LICENSE,THIRD_PARTY_NOTICES.md,ATTRIBUTION.md dist/windows/app/
           Copy-Item docs/CANVASPRO.md dist/windows/app/CanvasPro使用说明.md
@@ -89,7 +108,7 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: |
-          $version = "${{ github.event.release.tag_name }}".TrimStart("v", "V")
+          $version = "${{ env.RELEASE_TAG }}".TrimStart("v", "V")
           $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
           if (-not (Test-Path $makensis)) {
             $makensis = "makensis"
@@ -101,7 +120,7 @@ jobs:
       - name: Upload Windows installer
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             dist/windows/*.exe
             dist/windows/*.zip
@@ -125,7 +144,7 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -148,16 +167,19 @@ jobs:
       - name: Build binaries
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      - name: Verify CanvasPro native configuration
+        run: cargo test -p codex-plus-core --test canvaspro_defaults --release --locked --target ${{ matrix.target }}
+
       - name: Build macOS DMG
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           VERSION="${VERSION#V}"
           BINARY_DIR="$PWD/target/${{ matrix.target }}/release" bash scripts/installer/macos/package-dmg.sh "$VERSION" "${{ matrix.arch }}"
 
       - name: Build macOS zip asset
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           VERSION="${VERSION#V}"
           mkdir -p dist/macos/app-${{ matrix.arch }}
           cp "target/${{ matrix.target }}/release/codex-plus-plus" "dist/macos/app-${{ matrix.arch }}/"
@@ -180,16 +202,69 @@ jobs:
             test -x "$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
             plutil -lint "$app/Contents/Info.plist" >/dev/null
             codesign -dv "$app" >/dev/null 2>&1
+            codesign --verify --deep --strict "$app"
             echo "verified: $app"
           done
+          architecture='${{ matrix.arch }}'
+          if [ "$architecture" = 'x64' ]; then architecture='x86_64'; fi
+          lipo -verify_arch "$architecture" "target/${{ matrix.target }}/release/codex-plus-plus"
+          lipo -verify_arch "$architecture" "target/${{ matrix.target }}/release/codex-plus-plus-manager"
+          for dmg in dist/macos/*.dmg; do hdiutil verify "$dmg"; done
+
+      - name: Record macOS build checksums and provenance
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          export SOURCE_COMMIT="$(git rev-parse HEAD)"
+          export RUST_VERSION="$(rustc --version)"
+          export MACOS_VERSION="$(sw_vers -productVersion)"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const arch = process.env.BUILD_ARCH;
+          const files = fs.readdirSync('dist/macos').filter(name => /\.(dmg|zip)$/.test(name)).sort();
+          const assets = files.map(name => {
+            const bytes = fs.readFileSync(`dist/macos/${name}`);
+            return { name, bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
+          });
+          const manifest = {
+            tag: process.env.RELEASE_TAG, sourceCommit: process.env.SOURCE_COMMIT,
+            architecture: arch, target: process.env.BUILD_TARGET,
+            rust: process.env.RUST_VERSION, macOS: process.env.MACOS_VERSION,
+            signing: 'ad-hoc', appleNotarized: false,
+            validation: { canvasProNativeConfigurationTests: 'passed', binaryArchitecture: 'passed', codeSignature: 'passed', dmgIntegrity: 'passed' },
+            assets
+          };
+          const manifestName = `macos-${arch}-build-manifest.json`;
+          const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + '\n');
+          fs.writeFileSync(`dist/macos/${manifestName}`, manifestBytes);
+          const sums = assets.map(asset => `${asset.sha256}  ${asset.name}`);
+          sums.push(`${crypto.createHash('sha256').update(manifestBytes).digest('hex')}  ${manifestName}`);
+          fs.writeFileSync(`dist/macos/SHA256SUMS-macos-${arch}.txt`, sums.join('\n') + '\n');
+          NODE
+
+      - name: Preserve verified macOS build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvaspro-macos-${{ matrix.arch }}
+          path: |
+            dist/macos/*.dmg
+            dist/macos/*.zip
+            dist/macos/*build-manifest.json
+            dist/macos/SHA256SUMS-*.txt
+          if-no-files-found: error
 
       - name: Upload macOS DMG
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             dist/macos/*.dmg
             dist/macos/*.zip
+            dist/macos/*build-manifest.json
+            dist/macos/SHA256SUMS-*.txt
 
   latest-json:
     name: Upload static latest.json
@@ -204,7 +279,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         shell: bash
         run: |
           set -euo pipefail
@@ -233,7 +308,7 @@ jobs:
       - name: Upload latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ env.RELEASE_TAG }}
           REPO: ${{ github.repository }}
         shell: bash
         run: gh release upload "$TAG" latest.json --clobber --repo "$REPO"
