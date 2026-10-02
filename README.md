@@ -1,5 +1,7 @@
 # Codex++
 
+> 本工作树是 **CanvasPro 定制版**：默认接入 `https://api.canvasproai.com/v1`，打开管理工具后填写本站 API Key，点击「保存并启动 Codex」即可。内置 `gpt-6.1-sol`、`gpt-6-sol`、`gpt-6-astra`、`gpt-5.6-sol`。需先安装官方 Codex 桌面应用。使用及构建说明见 [CanvasPro 定制版](docs/CANVASPRO.md)。下方 BigPizzaV3 Releases 链接属于上游原版，不包含本工作树的修改。
+
 <p align="center">
   <img src="docs/images/codex-plus-plus.png" alt="Codex++ 图标" width="160">
 </p>

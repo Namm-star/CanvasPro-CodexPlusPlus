@@ -7,6 +7,8 @@
  * 去掉了 cc-switch 原始的商业合作标记（isPartner、partnerPromotionKey）。
  */
 
+import { CANVASPRO_PRESET } from "./canvaspro.ts";
+
 export type PresetCategory = "official" | "aggregator" | "third_party" | "cn_official";
 
 export type RelayProtocol = "responses" | "chatCompletions";
@@ -32,6 +34,7 @@ export interface ProviderPreset {
  * - modelList → 可选模型清单（换行分隔）
  */
 export const PRESETS: ProviderPreset[] = [
+  CANVASPRO_PRESET,
   // ── 官方 ──
   {
     id: "openai",

@@ -5,6 +5,16 @@
 
 // Plain strings: t("中文") -> EN_PLAIN["中文"].
 export const EN_PLAIN: Record<string, string> = {
+  "填写本站 API Key 即可使用，接口地址与模型已预设。需先安装官方 Codex 桌面应用。配置会保存在本机。": "Enter your CanvasPro API key to get started. The endpoint and models are preset. Install the official Codex desktop app first. Configuration is saved locally.",
+  "请填写本站 API Key。": "Enter your CanvasPro API key.",
+  "API Key 应为单个密钥，请勿粘贴 Bearer 请求头或多行内容。": "Enter a single API key, without the Bearer header or multiple lines.",
+  "配置或启动未完成，请查看应用提示后重试。": "Configuration or launch did not complete. Check the app message before retrying.",
+  "CanvasPro API Key": "CanvasPro API Key",
+  "已保存密钥；输入新密钥可更新": "A key is saved; enter a new key to update it",
+  "粘贴在本站密钥页创建的 API Key": "Paste the API key created on the CanvasPro keys page",
+  "正在配置并启动…": "Configuring and launching…",
+  "保存并启动 Codex": "Save and launch Codex",
+  "获取本站 API Key": "Get a CanvasPro API key",
   "读取会话索引修复报告失败": "Failed to read the session index repair report",
   "最后检查：": "Last checked: ",
   "旧版报告未记录时间": "Timestamp unavailable in this older report",

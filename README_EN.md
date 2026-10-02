@@ -1,5 +1,7 @@
 # Codex++
 
+> This working tree is the **CanvasPro edition**. The default endpoint is `https://api.canvasproai.com/v1`. Open the manager, enter your CanvasPro API key, and click “Save and launch Codex”. Preset models: `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-astra`, and `gpt-5.6-sol`. Install the official Codex desktop app first. See [CanvasPro edition](docs/CANVASPRO.md). BigPizzaV3 Releases below distribute the upstream edition without these changes.
+
 <p align="center">
   <img src="docs/images/codex-plus-plus.png" alt="Codex++ icon" width="160">
 </p>

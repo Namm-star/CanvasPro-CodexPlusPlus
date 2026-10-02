@@ -6,8 +6,8 @@
 !endif
 !define ROOT "..\..\.."
 
-Name "Codex++"
-OutFile "${ROOT}\dist\windows\CodexPlusPlus-${VERSION}-windows-x64-setup.exe"
+Name "Codex++ (CanvasPro)"
+OutFile "${ROOT}\dist\windows\CanvasPro-CodexPlusPlus-${VERSION}-windows-x64-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\Codex++"
 InstallDirRegKey HKCU "Software\Codex++" "InstallDir"
 RequestExecutionLevel user
@@ -17,6 +17,7 @@ SetCompressor /SOLID lzma
 !define MUI_UNICON "${ROOT}\apps\codex-plus-manager\src-tauri\icons\icon.ico"
 
 !insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_LICENSE "${ROOT}\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -35,6 +36,9 @@ Section "Install"
 
   File "${ROOT}\dist\windows\app\codex-plus-plus.exe"
   File "${ROOT}\dist\windows\app\codex-plus-plus-manager.exe"
+  File "${ROOT}\LICENSE"
+  File "${ROOT}\THIRD_PARTY_NOTICES.md"
+  File /oname=CanvasPro使用说明.md "${ROOT}\docs\CANVASPRO.md"
 
   Delete "$DESKTOP\Codex++ 绠＄悊宸ュ叿.lnk"
   Delete "$SMPROGRAMS\Codex++\Codex++ 绠＄悊宸ュ叿.lnk"
@@ -48,9 +52,9 @@ Section "Install"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
   WriteRegStr HKCU "Software\Codex++" "InstallDir" "$INSTDIR"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Codex++" "DisplayName" "Codex++"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Codex++" "DisplayName" "Codex++ (CanvasPro)"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Codex++" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Codex++" "Publisher" "BigPizzaV3"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Codex++" "Publisher" "CanvasPro / BigPizzaV3 (upstream)"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Codex++" "DisplayIcon" "$INSTDIR\codex-plus-plus-manager.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Codex++" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Codex++" "UninstallString" "$INSTDIR\uninstall.exe"
@@ -73,6 +77,9 @@ Section "Uninstall"
 
   Delete "$INSTDIR\codex-plus-plus.exe"
   Delete "$INSTDIR\codex-plus-plus-manager.exe"
+  Delete "$INSTDIR\LICENSE"
+  Delete "$INSTDIR\THIRD_PARTY_NOTICES.md"
+  Delete "$INSTDIR\CanvasPro使用说明.md"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
 

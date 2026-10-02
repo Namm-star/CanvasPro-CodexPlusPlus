@@ -238,6 +238,25 @@ pub struct AggregateRelayProfile {
     pub routes: Vec<AggregateRelayRoute>,
 }
 
+pub const CANVASPRO_BASE_URL: &str = "https://api.canvasproai.com/v1";
+pub const CANVASPRO_DEFAULT_MODEL: &str = "gpt-6.1-sol";
+pub const CANVASPRO_MODELS: &str = "gpt-6.1-sol\ngpt-6-sol\ngpt-6-astra\ngpt-5.6-sol";
+
+/// 仅用于全新安装；保留旧 profile 的反序列化默认值和迁移语义。
+pub fn canvaspro_default_profile() -> RelayProfile {
+    RelayProfile {
+        id: default_active_relay_id(),
+        name: "CanvasPro New API".to_string(),
+        model: CANVASPRO_DEFAULT_MODEL.to_string(),
+        base_url: CANVASPRO_BASE_URL.to_string(),
+        upstream_base_url: CANVASPRO_BASE_URL.to_string(),
+        relay_mode: RelayMode::PureApi,
+        test_model: CANVASPRO_DEFAULT_MODEL.to_string(),
+        model_list: CANVASPRO_MODELS.to_string(),
+        ..RelayProfile::default()
+    }
+}
+
 impl Default for RelayProfile {
     fn default() -> Self {
         Self {
@@ -709,7 +728,7 @@ impl Default for BackendSettings {
             launch_mode: LaunchMode::Patch,
             relay_base_url: default_relay_base_url(),
             relay_api_key: String::new(),
-            relay_profiles: default_relay_profiles(),
+            relay_profiles: vec![canvaspro_default_profile()],
             relay_common_config_contents: String::new(),
             relay_context_config_contents: String::new(),
             active_relay_id: default_active_relay_id(),
@@ -1136,7 +1155,8 @@ pub fn default_relay_profiles() -> Vec<RelayProfile> {
 /// 这是 `load` 失败后退回默认设置、再被原样回写磁盘的典型形态。
 /// `RelayProfile::default()` 的 id 固定为 `default`，用户手工创建的条目不会长这样。
 pub fn is_default_single_profile(profiles: &[RelayProfile]) -> bool {
-    profiles.len() == 1 && profiles[0] == RelayProfile::default()
+    profiles.len() == 1
+        && (profiles[0] == RelayProfile::default() || profiles[0] == canvaspro_default_profile())
 }
 
 pub fn default_aggregate_member_weight() -> u32 {
@@ -2136,7 +2156,9 @@ mod tests {
         assert_eq!(settings.launch_mode, LaunchMode::Patch);
         assert_eq!(settings.relay_base_url, default_relay_base_url());
         assert!(settings.relay_api_key.is_empty());
-        assert_eq!(settings.relay_profiles[0].relay_mode, RelayMode::Official);
+        assert_eq!(settings.relay_profiles[0].relay_mode, RelayMode::PureApi);
+        assert_eq!(settings.active_relay_id, default_active_relay_id());
+        assert_eq!(settings.relay_profiles[0], canvaspro_default_profile());
         assert!(settings.relay_common_config_contents.is_empty());
         assert_eq!(settings.relay_test_model, default_relay_test_model());
         let default_profile = &settings.relay_profiles[0];
@@ -2778,7 +2800,10 @@ experimental_bearer_token = "sk-existing""#
     fn normalized_default_settings() -> BackendSettings {
         // Keep expected values independent of the production normalizer.
         let mut expected = BackendSettings::default();
-        expected.tools.insert(ToolId::Codex, ToolConfig::default());
+        expected.tools.insert(ToolId::Codex, ToolConfig {
+            relay_profiles: vec![canvaspro_default_profile()],
+            ..ToolConfig::default()
+        });
         expected
     }
 
@@ -2910,6 +2935,7 @@ experimental_bearer_token = "sk-existing""#
             provider_sync_enabled: true,
             codex_extra_args: vec!["--force_high_performance_gpu".to_string()],
             ccs_db_path: dir.join("cc-switch.db").to_string_lossy().to_string(),
+            relay_profiles: default_relay_profiles(),
             ..BackendSettings::default()
         };
 
@@ -3517,6 +3543,7 @@ experimental_bearer_token = "sk-existing""#
     #[test]
     fn active_relay_profile_uses_legacy_single_relay_when_profiles_are_default() {
         let settings = BackendSettings {
+            relay_profiles: default_relay_profiles(),
             relay_base_url: "https://legacy.example/v1".to_string(),
             relay_api_key: "sk-legacy".to_string(),
             ..BackendSettings::default()

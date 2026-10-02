@@ -1,4 +1,12 @@
 import {
+  activateCanvasPro,
+  canvasProKeyError,
+  canvasProProfileId,
+  canvasProProfilePatch,
+  canvasProSetupKey,
+  CANVASPRO_PRESET,
+} from "./canvaspro";
+import {
   closestCenter,
   DndContext,
   KeyboardSensor,
@@ -1113,16 +1121,16 @@ const defaultSettings: BackendSettings = {
   relayProfiles: [
     {
       id: "default",
-      name: t("默认中转"),
-      model: "",
-      baseUrl: "",
-      upstreamBaseUrl: "",
+      name: CANVASPRO_PRESET.name,
+      model: CANVASPRO_PRESET.model,
+      baseUrl: CANVASPRO_PRESET.baseUrl,
+      upstreamBaseUrl: CANVASPRO_PRESET.baseUrl,
       apiKey: "",
       protocol: "responses",
-      relayMode: "official",
+      relayMode: "pureApi",
       officialMixApiKey: false,
       hideOfficialUsageAlert: false,
-      testModel: "",
+      testModel: CANVASPRO_PRESET.model,
       configContents: "",
       authContents: "",
       useCommonConfig: true,
@@ -1130,7 +1138,7 @@ const defaultSettings: BackendSettings = {
       contextSelectionInitialized: true,
       contextWindow: "",
       autoCompactLimit: "",
-      modelList: "",
+      modelList: CANVASPRO_PRESET.modelList.join("\n"),
       modelWindows: "",
       modelAutoCompact: "",
       modelMetadata: "",
@@ -1155,7 +1163,7 @@ const defaultSettings: BackendSettings = {
   activeRelayId: "default",
   aggregateRelayProfiles: [],
   activeAggregateRelayId: "",
-  relayTestModel: "gpt-5.4-mini",
+  relayTestModel: CANVASPRO_PRESET.model,
   tools: {},
   activeTool: "codex",
 };
@@ -2989,12 +2997,12 @@ export function App() {
   const switchRelayProfile = async (next: BackendSettings, previousActiveRelayId = settingsForm.activeRelayId) => {
     if (relaySwitching) {
       showNotice(t("供应商切换中"), t("上一次切换还没有完成，请稍后再试。"), "failed");
-      return;
+      return false;
     }
     let switchSettings = normalizeSettings(next);
     if (!switchSettings.relayProfilesEnabled) {
       showNotice(t("供应商配置已关闭"), t("当前不会写入 Codex config.toml / auth.json。打开供应商配置总开关后再切换。"), "failed");
-      return;
+      return false;
     }
     const targetBeforeSnapshot = activeRelayProfile(switchSettings);
     logDiagnostic("switchRelayProfile.start", {
@@ -3012,7 +3020,7 @@ export function App() {
         error: validationError,
       });
       showNotice(t("供应商配置可能不正确"), validationError, "failed");
-      return;
+      return false;
     }
     switchSettings = await snapshotActiveRelayFilesBeforeSwitch(switchSettings, previousActiveRelayId);
     const selectedAfterSave = activeRelayProfile(switchSettings);
@@ -3035,7 +3043,7 @@ export function App() {
         logDiagnostic("switchRelayProfile.apply_no_result", {
           targetRelayId: selectedAfterSave.id,
         });
-        return;
+        return false;
       }
       const selectedSettings = normalizeSettings(result.settings);
       setSettings({
@@ -3060,7 +3068,7 @@ export function App() {
           activeRelayId: selectedSettings.activeRelayId,
         });
         showNotice(t("供应商切换"), result.message, result.status);
-        return;
+        return false;
       }
       const currentSelected = activeRelayProfile(selectedSettings);
       logDiagnostic("switchRelayProfile.ok", {
@@ -3068,6 +3076,7 @@ export function App() {
         launchMode: selectedSettings.launchMode,
         status: result.status,
       });
+      return true;
     } finally {
       setRelaySwitching(false);
     }
@@ -3656,7 +3665,8 @@ export function App() {
             <OverviewScreen
               overview={overview}
               pluginMarketplaceProgress={pluginMarketplaceProgress}
-              ads={ads}
+              form={settingsForm}
+              ready={!!settings}
               activeTool={activeTool}
               toolEntries={toolEntries}
               actions={actions}
@@ -3954,7 +3964,7 @@ type Actions = {
   testStepwiseSettings: (settings: BackendSettings) => Promise<void>;
   fetchRelayProfileModels: (profile: RelayProfile) => Promise<string[] | null>;
   fetchSub2ApiBilling: (profile: RelayProfile) => Promise<Sub2ApiBillingResult | null>;
-  switchRelayProfile: (settings: BackendSettings, previousActiveRelayId?: string) => Promise<void>;
+  switchRelayProfile: (settings: BackendSettings, previousActiveRelayId?: string) => Promise<boolean>;
   relaySwitching: boolean;
   switchOfficialMode: () => Promise<void>;
   switchPureApiMode: () => Promise<void>;
@@ -4479,17 +4489,107 @@ function SponsorBoard({ ads, actions }: { ads: AdsResult | null; actions: Action
   );
 }
 
+function CanvasProSetup({ form, ready, actions }: { form: BackendSettings; ready: boolean; actions: Actions }) {
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState(CANVASPRO_PRESET.model);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const normalized = normalizeSettings(form);
+  const profileId = canvasProProfileId(normalized.relayProfiles);
+  const existing = normalized.relayProfiles.find((profile) => profile.id === profileId);
+  useEffect(() => {
+    if (existing && CANVASPRO_PRESET.modelList.includes(existing.model)) setModel(existing.model);
+  }, [existing?.id, existing?.model]);
+
+  const activate = async () => {
+    if (saving || !ready) return;
+    const effectiveKey = canvasProSetupKey(apiKey, existing?.apiKey);
+    const keyError = canvasProKeyError(effectiveKey);
+    if (keyError) {
+      setError(keyError === "missingKey"
+        ? t("请填写本站 API Key。")
+        : t("API Key 应为单个密钥，请勿粘贴 Bearer 请求头或多行内容。"));
+      return;
+    }
+    setError(null);
+    setSaving(true);
+    try {
+      const profile = applyRelayProfilePatchToFiles(
+        { ...(existing ?? defaultSettings.relayProfiles[0]), id: profileId },
+        canvasProProfilePatch(effectiveKey, model),
+        { allowGenerateFiles: true },
+      );
+      const next = syncLegacyRelayFields({
+        ...normalized,
+        relayProfilesEnabled: true,
+        relayProfiles: existing
+          ? normalized.relayProfiles.map((item) => item.id === profileId ? profile : item)
+          : [...normalized.relayProfiles, profile],
+        activeRelayId: profileId,
+      });
+      const activated = await activateCanvasPro(
+        () => actions.switchRelayProfile(next, normalized.activeRelayId),
+        () => actions.launch(),
+      );
+      if (activated) setApiKey("");
+    } catch {
+      setError(t("配置或启动未完成，请查看应用提示后重试。"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Panel>
+      <CardHead title={CANVASPRO_PRESET.name} detail={t("填写本站 API Key 即可使用，接口地址与模型已预设。需先安装官方 Codex 桌面应用。配置会保存在本机。")} />
+      <CardContent>
+        <form onSubmit={(event) => { event.preventDefault(); void activate(); }}>
+          <Field label={t("CanvasPro API Key")}>
+            <Input
+              autoComplete="off"
+              disabled={saving || !ready}
+              onChange={(event) => setApiKey(event.currentTarget.value)}
+              placeholder={existing?.apiKey ? t("已保存密钥；输入新密钥可更新") : t("粘贴在本站密钥页创建的 API Key")}
+              spellCheck={false}
+              type="password"
+              value={apiKey}
+            />
+          </Field>
+          <Field label={t("默认模型")}>
+            <select disabled={saving || !ready} onChange={(event) => setModel(event.currentTarget.value)} value={model}>
+              {CANVASPRO_PRESET.modelList.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </Field>
+          {error ? <p className="field-hint warn" role="alert">{error}</p> : null}
+          <Toolbar>
+            <Button disabled={saving || !ready} type="submit">
+              <Rocket className="h-4 w-4" />
+              {saving ? t("正在配置并启动…") : t("保存并启动 Codex")}
+            </Button>
+            <Button onClick={() => void actions.openExternalUrl(CANVASPRO_PRESET.apiKeyUrl)} type="button" variant="secondary">
+              <ExternalLink className="h-4 w-4" />
+              {t("获取本站 API Key")}
+            </Button>
+          </Toolbar>
+        </form>
+      </CardContent>
+    </Panel>
+  );
+}
+
 function OverviewScreen({
   overview,
   pluginMarketplaceProgress,
-  ads,
+  form,
+  ready,
   activeTool,
   toolEntries,
   actions,
 }: {
   overview: OverviewResult | null;
   pluginMarketplaceProgress: TaskProgress;
-  ads: AdsResult | null;
+  form: BackendSettings;
+  ready: boolean;
   activeTool: ToolId;
   toolEntries: ToolEntry[];
   actions: Actions;
@@ -4498,8 +4598,7 @@ function OverviewScreen({
   const tool = toolEntries.find((entry) => entry.id === activeTool);
   return (
     <>
-      {/* 置顶推荐位两个工具下都显示，内容与「推荐内容」页同源。 */}
-      <SponsorBoard ads={ads} actions={actions} />
+      {activeTool === "codex" ? <CanvasProSetup form={form} ready={ready} actions={actions} /> : null}
       {activeTool === "codex" ? (
         <>
           <Panel>
