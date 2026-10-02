@@ -1,6 +1,14 @@
-# Codex++
+# Codex++ · CanvasPro 定制版
 
-> 本工作树是 **CanvasPro 定制版**：默认接入 `https://api.canvasproai.com/v1`，打开管理工具后填写本站 API Key，点击「保存并启动 Codex」即可。内置 `gpt-6.1-sol`、`gpt-6-sol`、`gpt-6-astra`、`gpt-5.6-sol`。需先安装官方 Codex 桌面应用。使用及构建说明见 [CanvasPro 定制版](docs/CANVASPRO.md)。下方 BigPizzaV3 Releases 链接属于上游原版，不包含本工作树的修改。
+> 本仓库是 **CanvasPro 定制版**：默认接入 `https://api.canvasproai.com/v1`，打开管理工具后填写本站 API Key，点击「保存并启动 Codex」即可。内置 `gpt-6.1-sol`、`gpt-6-sol`、`gpt-6-astra`、`gpt-5.6-sol`。需先安装官方 Codex 桌面应用。使用及构建说明见 [CanvasPro 定制版](docs/CANVASPRO.md)。
+
+## 原作者与项目来源
+
+本项目基于 **[BigPizzaV3](https://github.com/BigPizzaV3)** 及上游贡献者开发的 **[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)**。启动器、管理工具、供应商管理和界面增强等主体能力来自原项目，感谢原作者与贡献者的工作。
+
+CanvasPro 的修改限于默认 API 供应商、填写 Key 后保存并启动的入口、已核对的文本模型预设和定制版发布资料。本仓库由 [Namm-star](https://github.com/Namm-star) 维护，与上游独立；不代表原作者对 CanvasPro 服务的背书。保留上游版权、[AGPL-3.0-only 许可证](LICENSE)和[第三方声明](THIRD_PARTY_NOTICES.md)，具体来源及改动见 [ATTRIBUTION.md](ATTRIBUTION.md)。
+
+**定制版下载：[CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**。原版下载及上游问题请前往 [BigPizzaV3 原仓库](https://github.com/BigPizzaV3/CodexPlusPlus)。下方保留的上游星标、社区和赞助资料属于原项目。
 
 <p align="center">
   <img src="docs/images/codex-plus-plus.png" alt="Codex++ 图标" width="160">
@@ -11,9 +19,9 @@
 </p>
 
 <p align="center">
-  <img alt="Release" src="https://img.shields.io/github/v/release/BigPizzaV3/CodexPlusPlus">
-  <img alt="Stars" src="https://img.shields.io/github/stars/BigPizzaV3/CodexPlusPlus">
-  <img alt="License" src="https://img.shields.io/github/license/BigPizzaV3/CodexPlusPlus">
+  <img alt="CanvasPro Release" src="https://img.shields.io/github/v/release/Namm-star/CanvasPro-CodexPlusPlus">
+  <img alt="Upstream Stars" src="https://img.shields.io/github/stars/BigPizzaV3/CodexPlusPlus?label=upstream%20stars">
+  <img alt="License" src="https://img.shields.io/github/license/Namm-star/CanvasPro-CodexPlusPlus">
   <img alt="Rust" src="https://img.shields.io/badge/rust-1.85%2B-orange">
   <img alt="Tauri" src="https://img.shields.io/badge/tauri-2.x-24C8DB">
 </p>
@@ -22,20 +30,20 @@ Codex++ 是面向 OpenAI Codex / ChatGPT 桌面应用的外部启动器与管理
 
 ## 快速使用
 
-从 [GitHub Releases](https://github.com/BigPizzaV3/CodexPlusPlus/releases) 下载最新版安装包：
+从 [CanvasPro GitHub Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases) 下载定制版安装包和对应源码：
 
-- Windows：`CodexPlusPlus-*-windows-x64-setup.exe`
-- macOS Intel：`CodexPlusPlus-*-macos-x64.dmg`
-- macOS Apple Silicon：`CodexPlusPlus-*-macos-arm64.dmg`
+- Windows：`CanvasPro-CodexPlusPlus-*-windows-x64-setup.exe`
+- 对应源码：`CanvasPro-CodexPlusPlus-*-source.zip`；分发安装包时请同时提供源码。
+- macOS Intel / Apple Silicon：构建流程已保留，生成后的 `.dmg` 会上传至同一 Releases 页面；以实际发布附件为准。
 
 安装后会有两个入口：
 
 - `Codex++`：静默启动官方桌面应用，并加载已保存的供应商配置与增强功能。
 - `Codex++ 管理工具`：管理供应商、模型、工具插件、会话、增强功能、脚本、更新和诊断。
 
-首次使用建议先打开管理工具，确认应用路径和运行状态，再配置供应商与增强功能，最后从 `Codex++` 入口启动。Windows 安装包会创建桌面和开始菜单快捷方式；macOS DMG 会安装 `/Applications/Codex++.app` 和 `/Applications/Codex++ 管理工具.app`。
+首次使用先安装官方 Codex，再打开管理工具，填写 CanvasPro API Key 并点击「保存并启动 Codex」。地址和 Responses 协议已预设，模型可在首页选择。Windows 安装包会创建桌面和开始菜单快捷方式。
 
-## 赞助商
+## 上游赞助商（沿用原项目说明）
 
 <p align="center">
   <a href="https://jojocode.com/">

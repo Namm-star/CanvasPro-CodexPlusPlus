@@ -1,6 +1,14 @@
-# Codex++
+# Codex++ · CanvasPro Edition
 
-> This working tree is the **CanvasPro edition**. The default endpoint is `https://api.canvasproai.com/v1`. Open the manager, enter your CanvasPro API key, and click “Save and launch Codex”. Preset models: `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-astra`, and `gpt-5.6-sol`. Install the official Codex desktop app first. See [CanvasPro edition](docs/CANVASPRO.md). BigPizzaV3 Releases below distribute the upstream edition without these changes.
+> This repository is the **CanvasPro edition**. The default endpoint is `https://api.canvasproai.com/v1`. Open the manager, enter your CanvasPro API key, and click “Save and launch Codex”. Preset models: `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-astra`, and `gpt-5.6-sol`. Install the official Codex desktop app first. See [CanvasPro edition](docs/CANVASPRO.md).
+
+## Original Author and Upstream Project
+
+This edition is based on **[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)** by **[BigPizzaV3](https://github.com/BigPizzaV3)** and upstream contributors. Its launcher, manager, provider management, and UI enhancements come from the original project. We gratefully acknowledge their work.
+
+CanvasPro changes cover the default API provider, key-only setup and launch flow, verified text model presets, and edition-specific distribution materials. This repository is maintained independently by [Namm-star](https://github.com/Namm-star); it does not imply endorsement of CanvasPro by the original author. Upstream copyrights, the [AGPL-3.0-only license](LICENSE), and [third-party notices](THIRD_PARTY_NOTICES.md) are retained. See [ATTRIBUTION.md](ATTRIBUTION.md) for provenance and modification details.
+
+**Edition downloads: [CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**. For the original edition and upstream issues, visit [BigPizzaV3's repository](https://github.com/BigPizzaV3/CodexPlusPlus). Upstream stars, community links, and sponsor materials retained below belong to that project.
 
 <p align="center">
   <img src="docs/images/codex-plus-plus.png" alt="Codex++ icon" width="160">
@@ -11,9 +19,9 @@
 </p>
 
 <p align="center">
-  <img alt="Release" src="https://img.shields.io/github/v/release/BigPizzaV3/CodexPlusPlus">
-  <img alt="Stars" src="https://img.shields.io/github/stars/BigPizzaV3/CodexPlusPlus">
-  <img alt="License" src="https://img.shields.io/github/license/BigPizzaV3/CodexPlusPlus">
+  <img alt="CanvasPro Release" src="https://img.shields.io/github/v/release/Namm-star/CanvasPro-CodexPlusPlus">
+  <img alt="Upstream Stars" src="https://img.shields.io/github/stars/BigPizzaV3/CodexPlusPlus?label=upstream%20stars">
+  <img alt="License" src="https://img.shields.io/github/license/Namm-star/CanvasPro-CodexPlusPlus">
   <img alt="Rust" src="https://img.shields.io/badge/rust-1.85%2B-orange">
   <img alt="Tauri" src="https://img.shields.io/badge/tauri-2.x-24C8DB">
 </p>
@@ -22,20 +30,20 @@ Codex++ is an external launcher and manager for the OpenAI Codex / ChatGPT deskt
 
 ## Quick Start
 
-Download the latest installer from [GitHub Releases](https://github.com/BigPizzaV3/CodexPlusPlus/releases):
+Download the edition installer and corresponding source from [CanvasPro GitHub Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases):
 
-- Windows: `CodexPlusPlus-*-windows-x64-setup.exe`
-- macOS Intel: `CodexPlusPlus-*-macos-x64.dmg`
-- macOS Apple Silicon: `CodexPlusPlus-*-macos-arm64.dmg`
+- Windows: `CanvasPro-CodexPlusPlus-*-windows-x64-setup.exe`
+- Corresponding source: `CanvasPro-CodexPlusPlus-*-source.zip`; distribute it alongside the installer.
+- macOS Intel / Apple Silicon: build workflows are retained; completed `.dmg` files will appear on the same Releases page. Check the actual attached assets for availability.
 
 After installation, two entry points are available:
 
 - `Codex++`: silently starts the official desktop app with saved provider settings and enhancements.
 - `Codex++ Manager`: manages providers, models, tools, sessions, enhancements, scripts, updates, and diagnostics.
 
-For first-time setup, open the manager, verify the detected app path, configure a provider and optional enhancements, then launch through `Codex++`. The Windows installer creates Desktop and Start Menu shortcuts. The macOS DMG installs `/Applications/Codex++.app` and `/Applications/Codex++ 管理工具.app`.
+For first-time setup, install the official Codex app, open the manager, enter your CanvasPro API key, and click “Save and launch Codex”. The endpoint and Responses protocol are preset; select a model on the home page. The Windows installer creates Desktop and Start Menu shortcuts.
 
-## Community and Support
+## Upstream Community and Support
 
 Join <a href="https://qm.qq.com/q/5h3pxpxg7S">Codex++ community group 4 (QQ group: 1127858981)</a> to report issues, share feedback, or suggest features.
 

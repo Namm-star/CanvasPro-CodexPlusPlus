@@ -2,6 +2,10 @@
 
 2026-10-02。本工作树基于 `BigPizzaV3/CodexPlusPlus@27d50a1`，分支 `codex/canvaspro-default-provider`。独立于 AI CanvasPro 画布服务；不修改线上渠道、模型、计费或数据。
 
+原作者为 [BigPizzaV3](https://github.com/BigPizzaV3) 及上游贡献者，原项目为 [CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)。主体能力来自上游，本定制版仅调整 CanvasPro 接入和发布资料。保留 AGPL-3.0-only、原版权及第三方声明，详细说明见 [ATTRIBUTION.md](../ATTRIBUTION.md)。
+
+定制版仓库：[Namm-star/CanvasPro-CodexPlusPlus](https://github.com/Namm-star/CanvasPro-CodexPlusPlus)。安装包与对应源码见该仓库 [Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)。macOS Intel / Apple Silicon 的构建流程已保留，是否可下载以实际发布附件为准。
+
 ## 用户使用
 
 1. 安装官方 Codex 桌面应用，再安装本定制版的 Codex++。它是官方应用的外部启动器，不内置官方应用。
@@ -48,7 +52,7 @@ cargo test -p codex-plus-core --lib settings::tests
 cargo test -p codex-plus-core --test relay_config
 ```
 
-Windows 构建使用 Rust 1.99.0 stable MSVC、电脑已有的 Visual Studio Build Tools 2026 / Windows SDK，以及 NSIS 3.12。原项目 `.github/workflows/pr-build.yml` 包含前端构建、Rust 测试、release 二进制与安装器步骤。本次 `cargo build --release --locked` 成功。安装器文件名带 CanvasPro 标识，并包含使用说明、AGPL 许可证和第三方声明。未提供自己的 GitHub fork 或分发地址，未推送、创建 PR 或发布 Release。
+Windows 构建使用 Rust 1.99.0 stable MSVC、电脑已有的 Visual Studio Build Tools 2026 / Windows SDK，以及 NSIS 3.12。原项目 `.github/workflows/pr-build.yml` 包含前端构建、Rust 测试、release 二进制与安装器步骤。本次 `cargo build --release --locked` 成功。安装器文件名带 CanvasPro 标识，并包含使用说明、原作者署名、AGPL 许可证和第三方声明。定制版通过独立仓库提供源码和发布包；不向原仓库推送修改。
 
 安装包：`dist/windows/CanvasPro-CodexPlusPlus-1.5.0-canvaspro.1-windows-x64-setup.exe`。同目录保留对应源码 ZIP 和构建清单。分发安装包时同时提供对应源码 ZIP；上游版权与许可证保持不变。
 

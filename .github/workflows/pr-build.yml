@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -30,7 +30,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: apps/codex-plus-manager
-        run: npm install --package-lock=false
+        run: npm ci --no-audit --no-fund
 
       - name: Frontend tests
         working-directory: apps/codex-plus-manager
@@ -45,10 +45,10 @@ jobs:
         run: npm run vite:build
 
       - name: Rust tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
       - name: Build release binaries
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Stage Windows app files
         shell: pwsh
@@ -107,7 +107,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -116,14 +116,14 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: apps/codex-plus-manager
-        run: npm install --package-lock=false
+        run: npm ci --no-audit --no-fund
 
       - name: Build frontend
         working-directory: apps/codex-plus-manager
         run: npm run vite:build
 
       - name: Build release binaries
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Build macOS DMG
         run: |
@@ -143,6 +143,9 @@ jobs:
           for app in "dist/macos/stage/Codex++.app" "dist/macos/stage/Codex++ 管理工具.app"; do
             test -f "$app/Contents/Info.plist"
             test -f "$app/Contents/PkgInfo"
+            test -f "$app/Contents/Resources/LICENSE"
+            test -f "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
+            test -f "$app/Contents/Resources/ATTRIBUTION.md"
             test -x "$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
             plutil -lint "$app/Contents/Info.plist" >/dev/null
             codesign -dv "$app" >/dev/null 2>&1

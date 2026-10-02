@@ -1,5 +1,13 @@
 # Third Party Notices
 
+## CodexPlusPlus Upstream
+
+The CanvasPro edition is based on CodexPlusPlus by BigPizzaV3 and upstream contributors:
+
+https://github.com/BigPizzaV3/CodexPlusPlus
+
+The original project and this edition use AGPL-3.0-only. All upstream copyright and license notices are retained. See LICENSE and ATTRIBUTION.md. CanvasPro modifications are maintained independently by Namm-star and do not imply endorsement by the original author.
+
 ## Codex-Dream-Skin
 
 Codex++ includes adapted CSS and renderer injection logic from:

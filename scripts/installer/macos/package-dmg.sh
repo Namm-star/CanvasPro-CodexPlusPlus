@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DIST="$ROOT/dist/macos"
 STAGE="$DIST/stage"
 BINARY_DIR="${BINARY_DIR:-$ROOT/target/release}"
-DMG="$DIST/CodexPlusPlus-${VERSION}-macos-${ARCH}.dmg"
+DMG="$DIST/CanvasPro-CodexPlusPlus-${VERSION}-macos-${ARCH}.dmg"
 ICON_SOURCE="$ROOT/apps/codex-plus-manager/src-tauri/icons/icon.png"
 ICON_NAME="codex-plus-plus.icns"
 ICON_ICNS="$DIST/$ICON_NAME"
@@ -73,6 +73,8 @@ create_app() {
   mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
   cp "$binary_path" "$app_dir/Contents/MacOS/$executable_name"
   cp "$ICON_ICNS" "$app_dir/Contents/Resources/$ICON_NAME"
+  cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/ATTRIBUTION.md" "$app_dir/Contents/Resources/"
+  cp "$ROOT/docs/CANVASPRO.md" "$app_dir/Contents/Resources/CanvasPro使用说明.md"
   chmod +x "$app_dir/Contents/MacOS/$executable_name"
   printf 'APPL????' > "$app_dir/Contents/PkgInfo"
   if [ "$executable_name" = "CodexPlusPlusManager" ]; then
@@ -164,6 +166,9 @@ sign_app "$STAGE/Codex++ 管理工具.app"
 
 verify_app "$STAGE/Codex++.app"
 verify_app "$STAGE/Codex++ 管理工具.app"
+
+cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/ATTRIBUTION.md" "$STAGE/"
+cp "$ROOT/docs/CANVASPRO.md" "$STAGE/CanvasPro使用说明.md"
 
 ln -s /Applications "$STAGE/Applications"
 
