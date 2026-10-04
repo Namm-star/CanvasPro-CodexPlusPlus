@@ -8,7 +8,7 @@ This edition is based on **[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPl
 
 CanvasPro changes cover the default API provider, key-only setup and launch flow, verified text model presets, and edition-specific distribution materials. This repository is maintained independently by [Namm-star](https://github.com/Namm-star); it does not imply endorsement of CanvasPro by the original author. Upstream copyrights, the [AGPL-3.0-only license](LICENSE), and [third-party notices](THIRD_PARTY_NOTICES.md) are retained. See [ATTRIBUTION.md](ATTRIBUTION.md) for provenance and modification details.
 
-**Edition downloads: [CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**. For the original edition and upstream issues, visit [BigPizzaV3's repository](https://github.com/BigPizzaV3/CodexPlusPlus). Upstream stars, community links, and sponsor materials retained below belong to that project.
+**Edition downloads: [CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**. For this edition's setup, API integration, and feedback, use the CanvasPro support group below or [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues).
 
 <p align="center">
   <img src="docs/images/codex-plus-plus.png" alt="Codex++ icon" width="160">
@@ -34,26 +34,55 @@ Download the edition installer and corresponding source from [CanvasPro GitHub R
 
 - Windows: `CanvasPro-CodexPlusPlus-*-windows-x64-setup.exe`
 - Corresponding source: `CanvasPro-CodexPlusPlus-*-source.zip`; distribute it alongside the installer.
-- macOS Intel / Apple Silicon: build workflows are retained; completed `.dmg` files will appear on the same Releases page. Check the actual attached assets for availability.
+- macOS Apple Silicon (M series): `CanvasPro-CodexPlusPlus-*-macos-arm64.dmg`
+- macOS Intel: `CanvasPro-CodexPlusPlus-*-macos-x64.dmg`
 
 After installation, two entry points are available:
 
 - `Codex++`: silently starts the official desktop app with saved provider settings and enhancements.
 - `Codex++ Manager`: manages providers, models, tools, sessions, enhancements, scripts, updates, and diagnostics.
 
-For first-time setup, install the official Codex app, open the manager, enter your CanvasPro API key, and click “Save and launch Codex”. The endpoint and Responses protocol are preset; select a model on the home page. The Windows installer creates Desktop and Start Menu shortcuts.
+Install the official Codex desktop app first, then this edition. The Windows installer creates Desktop and Start Menu shortcuts. On macOS, open the matching DMG and drag both “Codex++.app” and “Codex++ 管理工具.app” into Applications. Follow the API key setup below.
 
-## Upstream Community and Support
+## Get and Use a CanvasPro API Key
 
-Join <a href="https://qm.qq.com/q/5h3pxpxg7S">Codex++ community group 4 (QQ group: 1127858981)</a> to report issues, share feedback, or suggest features.
+### 1. Register or sign in
 
-WeChat: <a href="https://docs.qq.com/doc/DQ2VOanZTTFZJcUpZ#">get the latest group QR code</a>.
+Open the [CanvasPro API site](https://api.canvasproai.com) and choose register or sign in. It shares accounts with [CanvasPro Infinite Canvas](https://canvasproai.com): registration redirects to the canvas site, and existing canvas users can sign in or enter through the canvas site's API entry.
 
-<img src="docs/images/discussion-group-qr.jpg" alt="Codex++ WeChat group QR code" width="260">
+Check your account balance and top up through the site's prompts if needed. API calls use the CanvasPro shared wallet; see [model pricing](https://api.canvasproai.com/pricing). Creating a key does not add account credit.
 
-Telegram: <https://t.me/CodexPlusPlus>
+### 2. Create and copy your key
 
-Friendly link: <a href="https://linux.do">LINUX DO</a>
+1. Open [API Keys](https://api.canvasproai.com/keys) and click “Create API Key”. The manager's “Get a CanvasPro API key” button opens the same page.
+2. Give it a recognizable name, such as `CodexPlusPlus-MyComputer`, and keep the page's default available group.
+3. Set a key quota and expiry. A limited quota must have enough positive credit for your use. “Unlimited Quota” removes this key's separate quota limit; **it still requires account credit and calls remain billable**.
+4. If model restrictions are enabled, allow the GPT model you select in the client. If an IP whitelist is configured, include this computer's public outbound IP. When unsure during first-time setup, keep those defaults.
+5. Save, then use the list's copy icon (“Copy API key”) to copy the complete key. Do not copy masked text containing `***`.
+
+### 3. Save and launch
+
+1. Open Codex++ Manager and find “CanvasPro New API” on the overview page.
+2. Paste the complete key into “CanvasPro API Key”. Do not include `Bearer `, JSON, request headers, or multiple lines.
+3. Select `gpt-6.1-sol` (the default), `gpt-6-sol`, `gpt-6-astra`, or `gpt-5.6-sol`.
+4. Click “Save and launch Codex”. The endpoint `https://api.canvasproai.com/v1` and Responses protocol are preset.
+5. Start a new task and send a short message to confirm a reply. This request is billable; review usage and charges on the API site.
+
+Later, launch through `Codex++` to reuse your saved key. The manager clears the input after saving while keeping the saved key locally. To replace it, enter a new key and save and launch again.
+
+See the [full usage guide](docs/CANVASPRO.md) for troubleshooting and manual settings. Do not post complete keys in group chats, screenshots, or Issues. If a key is exposed, disable or delete it on the key page and create a replacement.
+
+## Community and Support
+
+For this CanvasPro edition's setup, API keys, balance, and model access, join the WeChat group **无限画布售后服务群 (Infinite Canvas After-sales Support)**.
+
+Scan the QR code with WeChat on your phone, or save the image and recognize it in WeChat.
+
+<img src="docs/images/canvaspro-support-group-20261004.png" alt="CanvasPro Infinite Canvas support group WeChat QR code" width="320">
+
+The screenshot states that this QR code is valid until **October 11**. If it expires, use [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues) to request the latest way to join.
+
+When reporting a problem, include your operating system, package version, model, and error message. Do not include a complete API key.
 
 ## Current Features
 

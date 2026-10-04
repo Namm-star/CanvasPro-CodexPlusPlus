@@ -8,7 +8,7 @@
 
 CanvasPro 的修改限于默认 API 供应商、填写 Key 后保存并启动的入口、已核对的文本模型预设和定制版发布资料。本仓库由 [Namm-star](https://github.com/Namm-star) 维护，与上游独立；不代表原作者对 CanvasPro 服务的背书。保留上游版权、[AGPL-3.0-only 许可证](LICENSE)和[第三方声明](THIRD_PARTY_NOTICES.md)，具体来源及改动见 [ATTRIBUTION.md](ATTRIBUTION.md)。
 
-**定制版下载：[CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**。原版下载及上游问题请前往 [BigPizzaV3 原仓库](https://github.com/BigPizzaV3/CodexPlusPlus)。下方保留的上游星标、社区和赞助资料属于原项目。
+**定制版下载：[CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**。本定制版的使用问题、API 接入和建议，请通过下方「交流与支持」联系 CanvasPro，或提交到[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)。
 
 <p align="center">
   <img src="docs/images/codex-plus-plus.png" alt="Codex++ 图标" width="160">
@@ -34,118 +34,55 @@ Codex++ 是面向 OpenAI Codex / ChatGPT 桌面应用的外部启动器与管理
 
 - Windows：`CanvasPro-CodexPlusPlus-*-windows-x64-setup.exe`
 - 对应源码：`CanvasPro-CodexPlusPlus-*-source.zip`；分发安装包时请同时提供源码。
-- macOS Intel / Apple Silicon：构建流程已保留，生成后的 `.dmg` 会上传至同一 Releases 页面；以实际发布附件为准。
+- macOS Apple Silicon（M 系列）：`CanvasPro-CodexPlusPlus-*-macos-arm64.dmg`
+- macOS Intel：`CanvasPro-CodexPlusPlus-*-macos-x64.dmg`
 
 安装后会有两个入口：
 
 - `Codex++`：静默启动官方桌面应用，并加载已保存的供应商配置与增强功能。
 - `Codex++ 管理工具`：管理供应商、模型、工具插件、会话、增强功能、脚本、更新和诊断。
 
-首次使用先安装官方 Codex，再打开管理工具，填写 CanvasPro API Key 并点击「保存并启动 Codex」。地址和 Responses 协议已预设，模型可在首页选择。Windows 安装包会创建桌面和开始菜单快捷方式。
+首次使用先安装官方 Codex，再安装本定制版。Windows 安装包会创建桌面和开始菜单快捷方式；Mac 打开对应 DMG，将「Codex++.app」和「Codex++ 管理工具.app」拖入 Applications。然后按下面的步骤申请并填写 API Key。
 
-## 上游赞助商（沿用原项目说明）
+## 申请并使用 CanvasPro API Key
 
-<p align="center">
-  <a href="https://jojocode.com/">
-    <img src="docs/images/sponsor-jojocode.png" alt="JOJO Code" height="110">
-  </a>
-</p>
-<p align="center">
-  <a href="https://jojocode.com/"><strong>JOJO Code</strong></a><br>
-  JOJO Code 提供稳定、价格合理的 API 中转服务，支持 GPT-5.6 全系列、Fable 5、Sonnet 5、GPT-5.5、GPT-5.4、Claude Opus 4.8、Claude Opus 4.7、gpt-image-2 等模型与图像能力，适合日常开发、团队协作和长期项目工作流。
-</p>
+### 1. 注册或登录 CanvasPro
 
-<a href="mailto:1727532@qq.com">想显示在下方？</a>
-<p align="center">
-</p>
-<table>
-  <tr>
-    <th width="180">🏆 赞助商 🏆</th>
-    <th>介绍</th>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://jojocode.com/">
-        <img src="docs/images/sponsor-jojocode.png" alt="JOJO Code" height="80">
-      </a>
-    </td>
-    <td><a href="https://jojocode.com/"><strong>JOJO Code</strong></a><br>JOJO Code 提供稳定、价格合理且易于接入的 API 中转服务，支持 GPT-5.6 全系列、Fable 5、Sonnet 5、GPT-5.5、GPT-5.4、Claude Opus 4.8、Claude Opus 4.7、gpt-image-2 等模型与图像能力，适合日常开发、快速配置、团队协作和长期使用。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://apikey.fun/register?aff=CODEX">
-        <img src="docs/images/sponsor-apikey-fun.png" alt="APIKEY.FUN" height="80">
-      </a>
-    </td>
-    <td><a href="https://apikey.fun/register?aff=CODEX"><strong>APIKEY.FUN</strong></a><br>感谢 APIKEY.FUN 赞助了本项目！APIKEY.FUN 是一家致力于提供开放、稳定、高性价比的全球主流大模型的 AI 中转站。平台支持 Claude、OpenAI、Gemini 等热门模型的 API 中转服务，价格低至官方原价的 7%。通过专属链接<a href="https://apikey.fun/register?aff=CODEX">注册 APIKEY</a>，可享受最高充值永久 95 折优惠。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://grooroute.com/register?aff=2B3KJR5SRNTX">
-        <img src="docs/images/sponsor-grooroute.png" alt="GrooRoute" width="170">
-      </a>
-    </td>
-    <td><a href="https://grooroute.com/register?aff=2B3KJR5SRNTX"><strong>GrooRoute｜官方原模型 API</strong></a><br>GrooRoute 提供 Claude 与 GPT 全系官方原模型，一行配置即可接入 Claude Code、Codex 或直接调用 API，官方承诺不掺假、永久保真。限时注册活动：充值 50 美元赠送 50 美元，通过<a href="https://grooroute.com/register?aff=2B3KJR5SRNTX">专属链接注册</a>并完成充值后，联系客服即可获取优惠。官网：<a href="https://grooroute.com/">grooroute.com</a>。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://xc.y1yun.net/">
-        <img src="docs/images/sponsor-yiyun-tech.jpg" alt="屹芸科技" height="80">
-      </a>
-    </td>
-    <td><a href="https://xc.y1yun.net/"><strong>屹芸科技</strong></a><br>屹芸科技旗下拥有九五云商发卡网、屹芸付支付系统等面向 AI 聚合赛道的收付产品，支持微信、支付宝、银联、云闪付等通道，提供低费率、D1/D0 结算、7×24 小时技术支持和企微客户专属服务群。平台通道费率稳定、结算准时，并提供高强度网站防护，帮助商户稳定开展线上销售。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://dis.chatdesks.cn/chatdesk/hsyqCodexPlusPlus.html">
-        <img src="docs/images/sponsor-volcengine.png" alt="火山引擎" height="80">
-      </a>
-    </td>
-    <td><a href="https://dis.chatdesks.cn/chatdesk/hsyqCodexPlusPlus.html"><strong>火山引擎｜方舟 Agent Plan</strong></a><br>感谢火山引擎赞助本项目！方舟 Agent Plan 模型订阅套餐集成了 Doubao-Seed、Doubao-Seedance、Doubao-Seedream 等字节跳动自研 SOTA 级模型，覆盖文本、代码、图像、视频等多模态任务。最新支持 MiniMax-M3、DeepSeek-V4 系列、GLM-5.2、Doubao-Seed-2.0 系列、Kimi-K2.7 等模型，工具不限。超全模态模型与 Harness 升级一步到位，深度支持 Agent 框架与 AI 编程工具。一次订阅，可以为不同任务切换合适的 AI 引擎。方舟 Agent Plan 限时 2.5 折订阅，<a href="https://dis.chatdesks.cn/chatdesk/hsyqCodexPlusPlus.html">点击链接抢购</a>，名额有限，先到先得。<a href="https://www.byteplus.com/en/product/modelark?utm_campaign=hw&amp;utm_content=CodexPlusPlus&amp;utm_medium=devrel_tool_web&amp;utm_source=OWO&amp;utm_term=CodexPlusPlus">For developers outside Mainland China, please click here</a>。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://cn.hb-api.online/register?aff=8KA2ZKWNHND8">
-        <img src="docs/images/sponsor-baikewei-ai.jpg" alt="百可为AI" height="80">
-      </a>
-    </td>
-    <td><a href="https://cn.hb-api.online/register?aff=8KA2ZKWNHND8"><strong>百可为AI</strong></a><br>百可为AI 是面向开发者、团队和 AI 工具用户的一站式大模型 API 服务平台，支持 Claude、OpenAI、Gemini、Codex 等主流模型能力接入。平台提供稳定中转、灵活计费、用量统计、余额管理和多场景 API 调用能力，适合 Claude Code、Codex、AI 生图、自动化脚本和各类智能应用长期使用。新用户注册可领取免费额度，开发者可快速接入、即开即用，让 AI 能力更稳定、更高效、更省心。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://go.apimart.ai/gh-codexplusplus">
-        <img src="docs/images/sponsor-apimart.png" alt="API Mart" width="170">
-      </a>
-    </td>
-    <td><a href="https://go.apimart.ai/gh-codexplusplus"><strong>API Mart</strong></a><br>感谢 API Mart 赞助了本项目！API Mart 是专注 AI 图片和视频生成的低价 API 平台，GPT-Image-2 低至每张 0.006 美元，1 美元可生成 160 多张图片。图片、视频使用一套异步 API，提交任务获取 ID 后可通过轮询或回调取得结果；支持数万张批量任务，切换模型无需改代码。按量付费、无月费，通过<a href="https://go.apimart.ai/gh-codexplusplus">此链接注册</a>即可使用。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://api.fenno.ai/s/ZZM7">
-        <img src="docs/images/sponsor-fenno-ai.png" alt="FennoAI" width="170">
-      </a>
-    </td>
-    <td><a href="https://api.fenno.ai/s/ZZM7"><strong>FennoAI</strong></a><br>FennoAI 是一家稳定、高效的 API 中转服务商，目前主要提供 Codex 中转服务，兼容 OpenAI 及 Anthropic 协议，可灵活接入 Codex、Claude Code、OpenCode 等主流编程工具，稳定支撑千亿 Token/日的企业级调用需求，支持国内及海外主体公对公结算、开票。通过<a href="https://api.fenno.ai/s/ZZM7">专属链接</a>购买订阅，仅需 1.99 美元即可获得价值 50 美元的 Coding Plan 额度；邀请好友购买最高可获得 20% 返佣。</td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://s.qiniu.com/7zUJri">
-        <img src="docs/images/sponsor-qiniu-ai.png" alt="七牛云" width="170">
-      </a>
-    </td>
-    <td><a href="https://s.qiniu.com/7zUJri"><strong>七牛云</strong></a><br>感谢七牛云 AI 赞助本项目！七牛云 AI 是七牛云（02567.HK）旗下企业级大模型 MaaS 平台，可一站式调用全球 150 多个主流模型，兼容全球主流模型厂商协议，覆盖文本、图像、音频、视频、文件处理等全模态能力，服务超过 169 万企业及开发者用户。企业用户可免费领取 1200 万 Token，邀请好友最高可获得百亿 Token。</td>
-  </tr>
-</table>
+打开 [CanvasPro API 站](https://api.canvasproai.com)，点击注册或登录。API 站与[无限画布](https://canvasproai.com)使用统一账号：注册入口会跳转到画布站，已有画布账号可直接登录，也可以从画布站的 API 入口进入。
+
+登录后，先查看账号余额；余额不足时按页面提示充值。API 模型调用从 CanvasPro 共享钱包扣费，价格可在[模型价格页](https://api.canvasproai.com/pricing)查看。创建密钥本身不会增加账户余额。
+
+### 2. 创建并复制 API Key
+
+1. 打开 [API 密钥页](https://api.canvasproai.com/keys)，点击「创建 API 密钥」。管理工具首页的「获取本站 API Key」也会打开此页面。
+2. 名称填写便于识别的名字，例如 `CodexPlusPlus-我的电脑`；分组保留页面提供的默认可用选择。
+3. 设定这把密钥的配额和过期时间。使用有限配额时请填入足够本次使用的正数；也可按需要勾选「无限配额」。**无限配额只表示不单独限制这把密钥的额度，调用仍需账户余额并正常扣费。**
+4. 如果启用了模型限制，确保允许客户端选择的 GPT 模型；如果设置了 IP 白名单，确保当前电脑的出口 IP 在允许范围内。初次配置不确定时，可先保留这两项默认设置。
+5. 保存后，在密钥列表点击复制图标（「复制 API 密钥」），复制完整密钥。不要复制列表中带 `***` 的脱敏文本。
+
+### 3. 填入管理工具并启动
+
+1. 打开「Codex++ 管理工具」，在概览首页找到「CanvasPro New API」。
+2. 将完整密钥粘贴到「CanvasPro API Key」。只填写密钥本身，不添加 `Bearer `，也不要粘贴 JSON、请求头或多行内容。
+3. 选择默认模型：`gpt-6.1-sol`，或 `gpt-6-sol`、`gpt-6-astra`、`gpt-5.6-sol`。
+4. 点击「保存并启动 Codex」。工具会保存配置并启动官方 Codex；默认地址 `https://api.canvasproai.com/v1` 和 Responses 协议已填好，无需手动修改。
+5. 启动后新建一个任务，发送一条简短消息确认能收到回复；这次请求会按模型价格计费。用量和扣费可在 API 站查看。
+
+以后可直接从 `Codex++` 入口启动，复用已保存的密钥。管理工具保存后会清空密钥输入框，已有密钥仍保存在本机；更换密钥时填入新 Key，再点击「保存并启动 Codex」。
+
+常见问题、手动配置参数和支持方式见[完整使用说明](docs/CANVASPRO.md)。请勿把完整密钥发到群聊、截图或 Issues；怀疑泄露时在密钥页禁用或删除旧密钥并重新创建。
 
 ## 交流与支持
 
-欢迎加入 Codex++ 交流 4 群（QQ群：1127858981），反馈问题、交流使用体验或提出新功能建议。<a href="https://qm.qq.com/q/5h3pxpxg7S">点击链接加入群聊</a>。
+CanvasPro 定制版的使用、API Key、余额和模型接入问题，请加入微信「**无限画布售后服务群**」，反馈问题或交流使用体验。
 
-<img src="docs/images/discussion-group-qr.jpg" alt="Codex++ 微信群二维码" width="260">
+使用微信扫描下方二维码；在电脑上浏览时，可用手机微信扫一扫，或保存图片后在微信中识别二维码。
 
-Telegram 频道：<https://t.me/CodexPlusPlus>
+<img src="docs/images/canvaspro-support-group-20261004.png" alt="无限画布售后服务群微信二维码" width="320">
 
-友情链接：<a href="https://linux.do">LINUX DO</a>
+本次二维码截图标注有效期至 **10 月 11 日**。若二维码已失效，请通过[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)反馈并获取最新入群方式。
+
+提交问题时请说明操作系统、安装包版本、选择的模型和错误提示；不要附带完整 API Key。
 
 ## 当前功能
 
