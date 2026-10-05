@@ -6,6 +6,8 @@
 
 定制版仓库：[Namm-star/CanvasPro-CodexPlusPlus](https://github.com/Namm-star/CanvasPro-CodexPlusPlus)。[Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases) 已提供 Windows x64、macOS Apple Silicon arm64、macOS Intel x64 安装包及对应源码。
 
+开发与更新迭代见 [开发记录](development/CANVASPRO_HISTORY.md)、[维护手册](development/CANVASPRO_MAINTENANCE.md) 和 [首发源码 / 附件基线](development/releases/v1.5.0-canvaspro.1.provenance.json)。用户教程与已发布安装包内附带的历史说明可能存在文档修订差异。
+
 ## 用户使用
 
 ### 安装客户端

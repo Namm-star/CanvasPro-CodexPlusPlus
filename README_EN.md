@@ -8,6 +8,8 @@ This edition is based on **[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPl
 
 CanvasPro changes cover the default API provider, key-only setup and launch flow, verified text model presets, and edition-specific distribution materials. This repository is maintained independently by [Namm-star](https://github.com/Namm-star); it does not imply endorsement of CanvasPro by the original author. Upstream copyrights, the [AGPL-3.0-only license](LICENSE), and [third-party notices](THIRD_PARTY_NOTICES.md) are retained. See [ATTRIBUTION.md](ATTRIBUTION.md) for provenance and modification details.
 
+Before future development or releases, read the [development history](docs/development/CANVASPRO_HISTORY.md), [maintenance guide](docs/development/CANVASPRO_MAINTENANCE.md), and [initial release provenance](docs/development/releases/v1.5.0-canvaspro.1.provenance.json).
+
 **Edition downloads: [CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**. For this edition's setup, API integration, and feedback, use the CanvasPro support group below or [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues).
 
 <p align="center">

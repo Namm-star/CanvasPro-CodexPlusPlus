@@ -4,7 +4,11 @@
 
 ## 项目概述
 
-本仓库是 [BigPizzaV3/CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus) 的 fork，目标是实现「按模型粒度配置上下文窗口与自动压缩阈值」feature（对应 issue #1171 / #931）。
+本仓库是 [BigPizzaV3/CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus) 的 CanvasPro 定制版，维护仓库为 [Namm-star/CanvasPro-CodexPlusPlus](https://github.com/Namm-star/CanvasPro-CodexPlusPlus)。当前目标是维护默认 CanvasPro New API 接入、仅填写用户 Key 后保存并启动的流程，以及定制版构建与发布。
+
+接手先读 [开发与发布记录](docs/development/CANVASPRO_HISTORY.md)、[维护手册](docs/development/CANVASPRO_MAINTENANCE.md) 和 [首发发布基线](docs/development/releases/v1.5.0-canvaspro.1.provenance.json)。用户教程见 [docs/CANVASPRO.md](docs/CANVASPRO.md)。本次应用首发基于 `27d50a1`，发布标签 `v1.5.0-canvaspro.1` 指向 `e9b6d59`；以后以实际 tag 和 manifest 核对源码，不把旧文档当作最新线上模型清单。
+
+下述「按模型粒度配置上下文窗口与自动压缩阈值」能力是已有 fork / 上游开发内容（对应 issue #1171 / #931），继续保留，不是当前未完成的新需求。
 
 采用 codex 原生 `model_catalog_json` 机制：通过 `model_list` 后缀语法（如 `deepseek-v4-pro[1M]`）声明每模型窗口，由 CodexPlusPlus 生成 catalog 文件并注入 config.toml 指针，codex 客户端运行时按模型识别各自窗口。
 
@@ -68,7 +72,9 @@
 ## 与上游同步
 
 - `upstream` = https://github.com/BigPizzaV3/CodexPlusPlus.git
-- `origin` = 用户自己的 GitHub fork（待创建）
-- feature 分支命名：`codex/per-model-context` 或类似
-- 定期 `git fetch upstream && git rebase upstream/main` 保持同步
-- 目标：全栈完成后向主仓提 PR 合并
+- `origin` = https://github.com/Namm-star/CanvasPro-CodexPlusPlus.git（已创建并公开发布）
+- 默认分支 `main`；现有接入分支 `codex/canvaspro-default-provider`；新迭代分支使用 `codex/` 前缀
+- 同步上游前先审阅具体变更，在迭代分支合并或挑选提交，重新验证默认接入、旧配置与定制发布；不重写已发布标签和共享分支历史
+- 本定制版独立维护，上游 PR 不是默认交付要求；用户明确要求时再开展
+- 默认自动更新源及“关于”页仍有上游链接，定制后缀尚不参与版本比较；这些是下一版待办，详见维护手册。本次只记录，没有改应用逻辑
+- 每次迭代追加开发记录、验证结果、对应源码 / 工作流提交、发布标签和附件摘要，保留原作者署名与许可证，不写入真实凭据

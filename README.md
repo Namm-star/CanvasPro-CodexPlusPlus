@@ -8,6 +8,8 @@
 
 CanvasPro 的修改限于默认 API 供应商、填写 Key 后保存并启动的入口、已核对的文本模型预设和定制版发布资料。本仓库由 [Namm-star](https://github.com/Namm-star) 维护，与上游独立；不代表原作者对 CanvasPro 服务的背书。保留上游版权、[AGPL-3.0-only 许可证](LICENSE)和[第三方声明](THIRD_PARTY_NOTICES.md)，具体来源及改动见 [ATTRIBUTION.md](ATTRIBUTION.md)。
 
+后续开发与发布请先读 [开发记录](docs/development/CANVASPRO_HISTORY.md)、[维护手册](docs/development/CANVASPRO_MAINTENANCE.md) 和 [首发发布基线](docs/development/releases/v1.5.0-canvaspro.1.provenance.json)。
+
 **定制版下载：[CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**。本定制版的使用问题、API 接入和建议，请通过下方「交流与支持」联系 CanvasPro，或提交到[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)。
 
 <p align="center">
