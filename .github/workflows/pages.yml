@@ -1,12 +1,8 @@
 name: Deploy site
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "site/**"
-      - "CHANGELOG.md"
-      - ".github/workflows/pages.yml"
+  # CanvasPro publishes installers; upstream site assets retain their original
+  # attribution and domain. Rebrand and configure Pages before manual deployment.
   workflow_dispatch:
 
 permissions:

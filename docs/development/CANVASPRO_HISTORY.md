@@ -158,3 +158,13 @@ GitHub 连接插件与本机 Git / `gh` 登录是不同的授权链路。此次�
 验证过程的例外也纳入记录：本机符号链接测试仍缺少 Windows 权限，完整运行确认错误 1314 后单独跳过；HTTP 代理曾拦截假上游回环流量，造成一个 502 及互斥锁中毒后的连带失败，设置进程级 `NO_PROXY=127.0.0.1,localhost,::1` 后协议代理 172 项全部通过。没有修改生产协议逻辑来绕过该环境问题，也没有跳过协议测试。
 
 前端最终 625 通过、1 项上游跳过；TypeScript、Vite 及工作流 actionlint 通过。CanvasPro 五项、更新器十二项和 UI 冒烟通过。完整 Rust 回归 2233 通过、10 项上游忽略、1 项符号链接权限测试单独跳过；执行时设置回环 NO_PROXY，并使用单线程测试以稳定环境。二进制及最终发布证据在公开构建清单补齐；没有发出真实付费模型请求。
+
+### 发布结论与归档
+
+[v1.9.0-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v1.9.0-canvaspro.1) 已公开。标签指向合并提交 `006fc7da6c5f35a23af4124eda5595885fbb44a1`；[发布工作流 38674643940](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/38674643940) 的定义与构建源码均为该提交，Windows、Mac universal 及最终来源检查全部成功。两个平台各自通过 5 项 CanvasPro 配置和 12 项更新器回归。Mac 校验两个架构、主应用 / 隐藏兼容壳的 plist 和严格签名，以及 DMG 结构；Intel 二进制编译通过不等于 Intel 真机运行验收。
+
+正式附件包括 Windows setup / ZIP、Mac universal DMG、源码 ZIP、两个构建清单、两个校验文件及 `latest.json`，共九份。全部下载，逐项核对字节数和 SHA-256 与 GitHub digest、平台校验清单一致；来源及完整摘要保存在 [本版发布基线](releases/v1.9.0-canvaspro.1.provenance.json)。源码 ZIP 与应用源码均为固定标签，不随后续文档提交漂移。
+
+本地 NSIS 编译及解包通过，主 EXE、使用说明和许可证资料摘要一致。原生进程以隔离 `CODEX_PLUS_STATE_DIR` / `CODEX_HOME` 启动并记录正确版本，退出码为 0；Windows Computer Use 截图超时，刷新窗口选择后仍未取得有效界面。因此原生 GUI 验收仍未确认，界面交互通过记录专指生产前端加模拟 Tauri IPC 的浏览器测试；没有运行安装器覆盖用户安装，也没有对真实官方 Codex 和付费 API 作端到端验收。
+
+发布后的维护提交更新中英文 README、AGENTS、维护手册及交接入口，不改变已发布标签。另修正更新器测试在不提供安装包的 Linux 平台的空值断言，Windows 十二项回归继续通过，不改变安装包运行逻辑。上游新引入的 Pages 自动发布曾因本定制仓库未启用 Pages 而返回 404；已改为手动触发，保留上游网站素材和域名，不启用或发布原官网。原始失败记录不删除，安装包正式发布工作流已成功。

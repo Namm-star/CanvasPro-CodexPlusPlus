@@ -8,7 +8,7 @@ This edition is based on **[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPl
 
 CanvasPro changes cover the default API provider, key-only setup and launch flow, verified text model presets, and edition-specific distribution materials. This repository is maintained independently by [Namm-star](https://github.com/Namm-star); it does not imply endorsement of CanvasPro by the original author. Upstream copyrights, the [AGPL-3.0-only license](LICENSE), and [third-party notices](THIRD_PARTY_NOTICES.md) are retained. See [ATTRIBUTION.md](ATTRIBUTION.md) for provenance and modification details.
 
-Before future development or releases, read the [development history](docs/development/CANVASPRO_HISTORY.md), [maintenance guide](docs/development/CANVASPRO_MAINTENANCE.md), and [initial release provenance](docs/development/releases/v1.5.0-canvaspro.1.provenance.json).
+Before future development or releases, read the [development history](docs/development/CANVASPRO_HISTORY.md), [maintenance guide](docs/development/CANVASPRO_MAINTENANCE.md), and [current release provenance](docs/development/releases/v1.9.0-canvaspro.1.provenance.json). The [initial release record](docs/development/releases/v1.5.0-canvaspro.1.provenance.json) remains available for historical comparison.
 
 **Edition downloads: [CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**. For this edition's setup, API integration, and feedback, use the CanvasPro support group below or [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues).
 
@@ -82,7 +82,7 @@ When reporting a problem, include your operating system, package version, model,
 
 ## Upstream Sync
 
-Development version **v1.9.0-canvaspro.1** integrates upstream v1.9.0, including model catalogs, Responses and tool-call fixes, provider configuration, aggregation, isolated Codex instances, and usage indicators. Available downloads are the published attachments on [Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases).
+The current release **[v1.9.0-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v1.9.0-canvaspro.1)** integrates upstream v1.9.0, including model catalogs, Responses and tool-call fixes, provider configuration, aggregation, isolated Codex instances, and usage indicators. Windows x64 installers, a universal Mac DMG, complete source, and checksum manifests are available on its release page.
 
 CanvasPro remains the default provider. The unified app saves the user's own key before launching Codex. Its updater now uses this edition's repository and recognizes CanvasPro revision numbers. To upgrade from the old edition, download this repository's installer first; the old binary still has its original update source.
 

@@ -11,7 +11,7 @@ git status --short
 git branch --show-current
 git remote -v
 git log -8 --oneline
-git show --no-patch 'v1.5.0-canvaspro.1^{commit}'
+git show --no-patch 'v1.9.0-canvaspro.1^{commit}'
 ```
 
 `origin` 应为 `Namm-star/CanvasPro-CodexPlusPlus`，`upstream` 为 `BigPizzaV3/CodexPlusPlus`。安装包以对应 release tag 和构建清单的 `sourceCommit` 为准；开发分支可能含后续 CI 和文档变更，不能把最新 README 当作所有已安装二进制的源码。
@@ -68,24 +68,24 @@ cargo build --release --locked
 
 ## 构建与发布
 
-Windows 的历史可用工具链为 Node 24、Rust stable MSVC、Visual Studio Build Tools / Windows SDK、NSIS；Mac 在对应架构的 GitHub macOS runner 原生构建。实际版本按当次清单记录。
+Windows 使用 Node 24、Rust stable MSVC、Visual Studio Build Tools / Windows SDK、NSIS；Mac 在 GitHub macOS runner 编译 arm64 与 x86_64，合并为 universal 包。实际工具版本按当次清单记录；架构编译通过和对应真机运行验证分别记录。
 
-Windows 先完成 Vite 前端和 Rust release 编译，再按现有 NSIS 脚本的 `VERSION` 打包，解包核对两份 EXE、使用说明及许可证资料。创建当前已提交源码的 ZIP，不把含未提交改动的目录直接压缩为“对应源码”。
+Windows 先完成 Vite 前端和 Rust release 编译，再按现有 NSIS 脚本的 `VERSION` 打包，解包核对一个统一主 EXE、使用说明及许可证资料。NSIS 以 `/INPUTCHARSET UTF8` 读取脚本。创建当前已提交源码的 ZIP，不把含未提交改动的目录直接压缩为“对应源码”。
 
 正式发布需要核对：
 
-1. 变更已提交，确定新的数字应用版本、发布标签和不可混淆的源码提交；完成相关测试并在 `docs/releases/` 写本次说明。
-2. 新建该版本的 tag / GitHub Release，使用当前 `release-assets.yml` 构建其源码。缺少自动触发时，可对已有标签手动运行工作流：
+1. 变更已提交，确定递增的应用版本（数字基线或 CanvasPro 修订）、发布标签和不可混淆的源码提交；完成相关测试并在 `docs/releases/` 写本次说明。
+2. 新建该版本的 tag 和草稿 GitHub Release，使用当前 `release-assets.yml` 构建其源码。对已有标签手动运行工作流：
 
 ```powershell
 # 示例值，使用时替换为这次真实创建的版本标签。
-gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --ref main -f tag=v1.5.1-canvaspro.1
+gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --ref main -f tag=v1.9.0-canvaspro.2 -f platform=all -f draft=true -f publish=true
 ```
 
-3. 记录工作流定义提交和实际 checkout 的源码提交。以两个 Mac job 及最终 metadata job 的结果为准；保存具体 run URL。首发成功 run 为 `36994204976`，不是以后版本的测试证明。
-4. 现有工作流会保留已有 Windows setup；两种 Mac DMG 都存在时跳过 Mac。只补齐缺失架构时当前会重跑两种 Mac，需核对附件和清单。修改已有发布版本的代码应创建新版本，不能以补包名义重指旧 tag 或混入另一份源码。
-5. Mac 核对 `lipo <binary> -verify_arch <arch>`、两应用的 plist / 可执行文件 / 版权资料、严格 codesign 验证和 `hdiutil verify`。ad-hoc 签名与 Apple 公证分别记录；当前流程只做前者。
-6. 每个平台生成 sourceCommit、工具链、架构、测试状态和 SHA-256 清单；Windows 未来 CI 自动发布的清单仍需补齐或明确人工产出，不能直接复制旧版本清单。CI 的 ZIP 和 DMG 也逐一记录。
+3. 记录工作流定义提交和实际 checkout 的源码提交。以 Windows、Mac universal 和最终 metadata job 的结果为准；保存具体 run URL。首发成功 run 为 `36994204976`，不是以后版本的测试证明。
+4. 默认 `platform=all` 重建两个平台；草稿阶段可指定一个平台补齐，最终仍须具备两个平台的附件和一致的清单。修改已有发布版本的代码应创建新版本，不能以补包名义重指旧 tag 或混入另一份源码。
+5. Mac 对可见主应用及隐藏兼容壳核对 `lipo <binary> -verify_arch x86_64 arm64`、plist / 可执行文件 / 版权资料、严格 codesign 验证和 `hdiutil verify`。ad-hoc 签名与 Apple 公证分别记录；当前流程只做前者。
+6. 两个平台均由工作流自动生成 sourceCommit、工具链、架构、测试状态和 SHA-256 清单，不复制旧版本清单。CI 的 Windows ZIP、源码 ZIP 和 universal DMG 也逐一记录。
 7. 上传安装包、对应完整源码、构建清单及校验文件，再核对 GitHub 附件 digest、大小和实际下载。源码 ZIP 与所有二进制对应同一源码提交。
 8. `latest.json` 中的 version、body、下载 URL 和附件与 Release 一致；单独更新 Release 正文后也更新 metadata。其摘要随文档变化，是可变发布资料，不应与安装包的固定摘要混淆。
 9. 更新开发记录与本版 provenance；用户能下载和读到说明后再报告发布完成。
@@ -102,7 +102,7 @@ gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --re
 
 ## 回退与记录
 
-应用逻辑出现回归时，在开发分支回退具体变更并重跑相应测试；部署给用户的修复使用递增的新数字版本。急需恢复旧行为时可从已核验的首发 tag 重建，保留原源码对应关系。
+应用逻辑出现回归时，在开发分支回退具体变更并重跑相应测试；部署给用户的修复使用递增的数字版本或 CanvasPro 修订。急需恢复旧行为时可从已核验的历史 tag 重建，保留原源码对应关系。
 
 切换旧安装包前备份用户设置，检查配置兼容，不通过清空 Key、登录状态或会话数据实现回退。服务端 New API 的回退独立于本客户端。
 
@@ -119,3 +119,4 @@ gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --re
 - 本地若使用 HTTP 代理，测试命令先设置 `$env:NO_PROXY='127.0.0.1,localhost,::1'`，避免假上游的回环请求被送到代理。不要用跳过代理测试来掩盖环境路由问题。
 - 交互检查必须包含“保存失败后立即重试”；React actions 的记忆依赖应包含切换状态，避免旧闭包永久拦截后续操作。
 - 记录中“首发”的两个 Mac job、Windows 人工清单和原版本升级限制属于历史；新版本的验证以对应标签与清单为准。
+- 上游 `site/` 含原官网域名及素材，CanvasPro 未配置 GitHub Pages。本仓库的 `pages.yml` 仅手动触发；不要为解决一个无关的 Pages 404 而启用或发布上游官网。安装包发布以 `release-assets.yml` 为准。

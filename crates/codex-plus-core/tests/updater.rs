@@ -44,7 +44,11 @@ fn canvaspro_update_metadata_uses_the_edition_repository() {
             {"name":"CanvasPro-CodexPlusPlus-1.9.0-canvaspro.1-macos-universal.dmg", "url":"https://example.test/app.dmg"}
         ]
     })).unwrap();
-    assert!(release.asset_name.unwrap().starts_with("CanvasPro-CodexPlusPlus-"));
+    if cfg!(windows) || cfg!(target_os = "macos") {
+        assert!(release.asset_name.unwrap().starts_with("CanvasPro-CodexPlusPlus-"));
+    } else {
+        assert!(release.asset_name.is_none());
+    }
 }
 
 #[test]
