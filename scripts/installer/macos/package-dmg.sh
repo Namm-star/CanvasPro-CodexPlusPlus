@@ -77,7 +77,7 @@ create_app() {
   cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/ATTRIBUTION.md" "$app_dir/Contents/Resources/"
   cp "$ROOT/docs/CANVASPRO.md" "$app_dir/Contents/Resources/CanvasPro使用说明.md"
   mkdir -p "$app_dir/Contents/Resources/images"
-  cp "$ROOT/docs/images/canvaspro-support-group-20261004.png" "$app_dir/Contents/Resources/images/"
+  cp "$ROOT/docs/images/canvaspro-support-group-20261015.png" "$app_dir/Contents/Resources/images/"
   chmod +x "$app_dir/Contents/MacOS/$executable_name"
   printf 'APPL????' > "$app_dir/Contents/PkgInfo"
   if [ "$executable_name" = "CodexPlusPlus" ]; then
@@ -254,7 +254,7 @@ ln -s /Applications "$STAGE/Applications"
 cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/ATTRIBUTION.md" "$STAGE/"
 cp "$ROOT/docs/CANVASPRO.md" "$STAGE/CanvasPro使用说明.md"
 mkdir -p "$STAGE/images"
-cp "$ROOT/docs/images/canvaspro-support-group-20261004.png" "$STAGE/images/"
+cp "$ROOT/docs/images/canvaspro-support-group-20261015.png" "$STAGE/images/"
 
 DMG_WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-plus-plus-dmg.XXXXXX")"
 DMG_WORK_PATH="$DMG_WORK_DIR/$(basename "$DMG")"

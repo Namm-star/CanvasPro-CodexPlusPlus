@@ -51,11 +51,11 @@ Key 保存在本机配置中；首页使用密码输入框，保存成功后清�
 
 ## 交流与支持
 
-微信「**无限画布售后服务群**」处理本定制版使用、API Key、余额和模型接入问题。用微信扫码或保存图片后识别：
+微信「**画布&api服务群**」处理本定制版使用、API Key、余额和模型接入问题。用微信扫码或保存图片后识别：
 
-<img src="images/canvaspro-support-group-20261004.png" alt="无限画布售后服务群微信二维码" width="320">
+<img src="images/canvaspro-support-group-20261015.png" alt="画布&amp;api服务群微信二维码" width="320">
 
-上图为历史二维码，已于 **2026 年 10 月 11 日过期**；请在[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)获取最新入群方式。
+二维码更新于 **2026 年 10 月 15 日**，截图标注有效期至 **2026 年 10 月 22 日前**；失效后请在[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)获取最新入群方式。
 
 ## 接入配置
 

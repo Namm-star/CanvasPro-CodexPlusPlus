@@ -70,13 +70,13 @@ See the [full usage guide](docs/CANVASPRO.md) for troubleshooting and manual set
 
 ## Community and Support
 
-For this CanvasPro edition's setup, API keys, balance, and model access, join the WeChat group **无限画布售后服务群 (Infinite Canvas After-sales Support)**.
+For this CanvasPro edition's setup, API keys, balance, and model access, join the WeChat group **画布&api服务群 (Canvas & API Support)**.
 
 Scan the QR code with WeChat on your phone, or save the image and recognize it in WeChat.
 
-<img src="docs/images/canvaspro-support-group-20261004.png" alt="CanvasPro Infinite Canvas support group WeChat QR code" width="320">
+<img src="docs/images/canvaspro-support-group-20261015.png" alt="CanvasPro Canvas &amp; API support group WeChat QR code" width="320">
 
-This historical screenshot expired on **October 11, 2026**. For a current invitation, use [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues) to request the latest way to join.
+Updated on **October 15, 2026**. The screenshot marks this QR code as valid **before October 22, 2026**. If it expires, use [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues) to request the latest way to join.
 
 When reporting a problem, include your operating system, package version, model, and error message. Do not include a complete API key.
 

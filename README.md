@@ -70,13 +70,13 @@ Codex++ 是面向 OpenAI Codex / ChatGPT 桌面应用的外部启动器与管理
 
 ## 交流与支持
 
-CanvasPro 定制版的使用、API Key、余额和模型接入问题，请加入微信「**无限画布售后服务群**」，反馈问题或交流使用体验。
+CanvasPro 定制版的使用、API Key、余额和模型接入问题，请加入微信「**画布&api服务群**」，反馈问题或交流使用体验。
 
 使用微信扫描下方二维码；在电脑上浏览时，可用手机微信扫一扫，或保存图片后在微信中识别二维码。
 
-<img src="docs/images/canvaspro-support-group-20261004.png" alt="无限画布售后服务群微信二维码" width="320">
+<img src="docs/images/canvaspro-support-group-20261015.png" alt="画布&amp;api服务群微信二维码" width="320">
 
-下图为历史二维码，截图有效期至 **2026 年 10 月 11 日，现已过期**。请勿依赖旧二维码入群，请通过[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)反馈并获取最新入群方式。
+二维码更新于 **2026 年 10 月 15 日**，截图标注有效期至 **2026 年 10 月 22 日前**。若二维码失效，请通过[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)获取最新入群方式。
 
 提交问题时请说明操作系统、安装包版本、选择的模型和错误提示；不要附带完整 API Key。
 
