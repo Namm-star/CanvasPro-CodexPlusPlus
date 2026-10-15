@@ -1,0 +1,60 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const { chromium } = await import(process.env.CANVASPRO_PLAYWRIGHT_MODULE || 'playwright');
+const root = path.resolve('apps/codex-plus-manager/dist');
+const server = http.createServer((req,res) => {
+  const p = path.resolve(root, '.' + new URL(req.url,'http://localhost').pathname);
+  if (!p.startsWith(root)) { res.writeHead(403).end(); return; }
+  const file = p === root ? path.join(root,'index.html') : p;
+  if (!fs.existsSync(file)) { res.writeHead(404).end(); return; }
+  const type = {'.js':'text/javascript','.css':'text/css','.html':'text/html','.woff2':'font/woff2','.png':'image/png','.jpg':'image/jpeg'}[path.extname(file)] || 'application/octet-stream';
+  res.writeHead(200, {'Content-Type':type}); res.end(fs.readFileSync(file));
+});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+let browser;
+try {
+  browser=await chromium.launch({headless:true,...(process.env.CANVASPRO_BROWSER_EXECUTABLE ? {executablePath:process.env.CANVASPRO_BROWSER_EXECUTABLE} : {})});
+  const page=await browser.newPage({viewport:{width:1440,height:1000}});
+  await page.route('**/*', route=>new URL(route.request().url()).hostname==='127.0.0.1' ? route.continue() : route.abort());
+  const fixture=fs.readFileSync('tests/browser/tauri-fixture.js','utf8').replace('window.__fixtureErrors = [];','window.__fixtureErrors = []; window.__fixtureDiagnostics=[];').replace('window.__fixtureCalls.push(command);','window.__fixtureCalls.push(command); if(command==="write_diagnostic_event") window.__fixtureDiagnostics.push(args);')+'\nfixtureSettings.relayProfiles[0].configContents = \'model = "gpt-6.1-sol"\\nmodel_provider = "custom"\\n\\n[model_providers.custom]\\nname = "custom"\\nwire_api = "responses"\\nbase_url = "https://api.canvasproai.com/v1"\\n\';\n';
+  await page.addInitScript({content:fixture});
+  await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  const key=page.locator('input[type=password]').first();
+  await key.waitFor();
+  await page.evaluate(()=>{window.__fixtureSubmits=0; document.addEventListener('submit',()=>window.__fixtureSubmits++,true);});
+  const launch=page.getByRole('button',{name:'保存并启动 Codex',exact:true});
+  await launch.click();
+  await page.getByRole('alert').filter({hasText:'请填写本站 API Key'}).waitFor();
+  assert.equal(await page.evaluate(()=>window.__fixtureCalls.includes('launch_codex_plus')),false);
+  await key.fill('Bearer invalid-fixture');
+  await launch.click();
+  await page.getByRole('alert').filter({hasText:'API Key 应为单个密钥'}).waitFor();
+  await key.fill('local-fixture');
+  await page.evaluate(()=>window.__fixtureSwitchFailure=true);
+  await launch.click();
+  await page.waitForFunction(()=>window.__fixtureCalls.includes('switch_relay_profile'));
+  await page.waitForFunction(()=>[...document.querySelectorAll('button')].find(x=>x.textContent.includes('保存并启动 Codex'))?.disabled===false);
+  assert.equal(await page.evaluate(()=>window.__fixtureCalls.includes('launch_codex_plus')),false);
+  await page.evaluate(()=>window.__fixtureSwitchFailure=false);
+  const model=page.locator('select').filter({has:page.locator('option[value="gpt-6.1-sol"]')});
+  await model.selectOption('gpt-6-astra');
+  await launch.click();
+  await page.waitForFunction(()=>window.__fixtureCalls.includes('launch_codex_plus'));
+  const applied=await page.evaluate(()=>window.__fixtureApplied);
+  assert.equal(applied.baseUrl,'https://api.canvasproai.com/v1');
+  assert.equal(applied.protocol,'responses');
+  assert.equal(applied.model,'gpt-6-astra');
+  assert.equal(applied.hasKey,true);
+  await key.waitFor({state:'visible'});
+  await page.waitForFunction(()=>document.querySelector('input[type=password]').value==='');
+  const first=await page.evaluate(()=>window.__fixtureCalls.filter(x=>x==='launch_codex_plus').length);
+  await launch.click();
+  await page.waitForFunction(n=>window.__fixtureCalls.filter(x=>x==='launch_codex_plus').length>n,first);
+  const errors=await page.evaluate(()=>window.__fixtureErrors);
+  assert.deepEqual(errors,[]);
+  await page.screenshot({path:'.zcode/canvaspro-190-browser.png',fullPage:true});
+  fs.writeFileSync('.zcode/browser-verification-190.json',JSON.stringify({passed:true,checks:['empty key','invalid header','save failure prevents launch','selected Responses model','save then launch','saved key reuse','no JavaScript errors'],realModelRequests:false},null,2)+'\n');
+  console.log('Browser verification passed: seven setup checks, mocked Tauri only.');
+} finally { await browser?.close(); await new Promise(resolve=>server.close(resolve)); }

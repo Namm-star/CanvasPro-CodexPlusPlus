@@ -1,10 +1,10 @@
 # CanvasPro 定制版
 
-本工具默认接入 CanvasPro New API。安装官方 Codex 桌面应用和本定制版后，填写自己创建的 CanvasPro API Key，即可保存配置并启动 Codex。使用说明更新于 2026-10-04。
+本工具默认接入 CanvasPro New API。安装官方 Codex 桌面应用和本定制版后，填写自己创建的 CanvasPro API Key，即可保存配置并启动 Codex。使用说明更新于 2026-10-15。
 
 原作者为 [BigPizzaV3](https://github.com/BigPizzaV3) 及上游贡献者，原项目为 [CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)。主体能力来自上游，本定制版仅调整 CanvasPro 接入和发布资料。保留 AGPL-3.0-only、原版权及第三方声明，详细说明见 [ATTRIBUTION.md](../ATTRIBUTION.md)。
 
-定制版仓库：[Namm-star/CanvasPro-CodexPlusPlus](https://github.com/Namm-star/CanvasPro-CodexPlusPlus)。[Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases) 已提供 Windows x64、macOS Apple Silicon arm64、macOS Intel x64 安装包及对应源码。
+定制版仓库：[Namm-star/CanvasPro-CodexPlusPlus](https://github.com/Namm-star/CanvasPro-CodexPlusPlus)。[Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases) 提供定制版安装包与对应源码；新开发版本为 v1.9.0-canvaspro.1，Windows x64 与 Mac 通用包以实际公开附件为准。
 
 开发与更新迭代见 [开发记录](development/CANVASPRO_HISTORY.md)、[维护手册](development/CANVASPRO_MAINTENANCE.md) 和 [首发源码 / 附件基线](development/releases/v1.5.0-canvaspro.1.provenance.json)。用户教程与已发布安装包内附带的历史说明可能存在文档修订差异。
 
@@ -15,7 +15,7 @@
 先安装官方 Codex 桌面应用，本工具是外部启动器，不内置官方应用。再从本仓库 Releases 下载对应版本：
 
 - Windows：运行 `CanvasPro-CodexPlusPlus-*-windows-x64-setup.exe`，通过桌面或开始菜单打开管理工具。
-- Mac M 系列：下载 `macos-arm64.dmg`；Intel Mac：下载 `macos-x64.dmg`。打开 DMG，将「Codex++.app」和「Codex++ 管理工具.app」拖入 Applications。
+- Mac Intel / M 系列：下载 `macos-universal.dmg`，将可见的「Codex++.app」拖入 Applications。隐藏的旧管理工具兼容壳不需要手动安装。
 
 ### 申请 API Key
 
@@ -28,11 +28,11 @@
 
 ### 保存配置并使用
 
-1. 打开「Codex++ 管理工具」，在概览首页的「CanvasPro New API」面板中，将完整 Key 粘贴到「CanvasPro API Key」。只填密钥本身，不带 `Bearer ` 前缀、JSON、请求头或换行。
+1. 打开「Codex++」，在概览首页的「CanvasPro New API」面板中，将完整 Key 粘贴到「CanvasPro API Key」。只填密钥本身，不带 `Bearer ` 前缀、JSON、请求头或换行。
 2. 选择 `gpt-6.1-sol`（默认）、`gpt-6-sol`、`gpt-6-astra` 或 `gpt-5.6-sol`。
 3. 点击「保存并启动 Codex」。工具会保存密钥与模型配置并启动官方 Codex；Base URL 和 Responses 协议已预填，无需手动修改。
 4. 新建任务，发送一条简短消息确认能收到回复。此请求会正常计费，用量和扣费可在 API 站查看。
-5. 后续从 `Codex++` 入口启动，可复用已保存的配置。切换模型或更换密钥后，再点击「保存并启动 Codex」。
+5. 后续打开 `Codex++`，点击启动或「保存并启动 Codex」，复用已保存的配置。切换模型或更换密钥后，再点击「保存并启动 Codex」。
 
 Key 保存在本机配置中；首页使用密码输入框，保存成功后清空输入内容，已保存的 Key 仍可复用。只使用自己在本站创建的密钥，不要将完整 Key 放入群聊、日志、截图或 Issues。怀疑泄露时在密钥页禁用或删除旧 Key，并重新创建。
 
@@ -55,7 +55,7 @@ Key 保存在本机配置中；首页使用密码输入框，保存成功后清�
 
 <img src="images/canvaspro-support-group-20261004.png" alt="无限画布售后服务群微信二维码" width="320">
 
-截图标注本次二维码有效期至 **10 月 11 日**；如已失效，请在[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)获取最新入群方式。
+上图为历史二维码，已于 **2026 年 10 月 11 日过期**；请在[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)获取最新入群方式。
 
 ## 接入配置
 
@@ -74,7 +74,7 @@ Key 保存在本机配置中；首页使用密码输入框，保存成功后清�
 
 概览首页提供 CanvasPro 接入面板，已有其他供应商配置继续保留。使用上游安装包或应用上游更新可能覆盖本定制功能；分发时应使用本仓库的构建产物。
 
-## 构建与验证
+## 首发构建与验证（2026-10-02 历史记录）
 
 2026-10-02 的构建基于 `BigPizzaV3/CodexPlusPlus@27d50a1`，分支 `codex/canvaspro-default-provider`。本工具独立于 AI CanvasPro 画布服务，不修改线上渠道、模型、计费或数据。
 
@@ -100,7 +100,7 @@ Windows 构建使用 Rust 1.99.0 stable MSVC、电脑已有的 Visual Studio Bui
 
 安装包：`dist/windows/CanvasPro-CodexPlusPlus-1.5.0-canvaspro.1-windows-x64-setup.exe`。同目录保留对应源码 ZIP 和构建清单。分发安装包时同时提供对应源码 ZIP；上游版权与许可证保持不变。
 
-## 验证记录
+## 首发验证记录（历史）
 
 - 前端自动测试 317/317、TypeScript 检查和 Vite 生产构建通过。
 - Rust 工作区 1693 项通过，7 项上游自带忽略。一次完整运行中，上游 `app_paths_resolves_portable_current_link_to_directory_version` 因 Windows 错误 1314（缺少创建符号链接权限）失败；保留原测试不改，最终运行只跳过该项，其他测试全部通过。
@@ -110,3 +110,7 @@ Windows 构建使用 Rust 1.99.0 stable MSVC、电脑已有的 Visual Studio Bui
 - 安装器 NSIS 编译成功，解包后的两个 EXE 与 release 编译结果的 SHA-256 逐一一致，使用说明/许可证/第三方声明均在包内。
 - macOS Intel / Apple Silicon 原生构建均完成；每种架构的 4 项 CanvasPro 配置测试、Mach-O 架构检查、严格代码签名验证和 DMG 完整性校验通过。每个版本随包提供构建清单和 SHA-256 校验文件；采用 ad-hoc 签名，未经过 Apple 公证。
 - 没有使用真实 Key 或发出付费模型请求，不宣称真实 Codex 端到端调用已验收。未在用户日常环境运行安装器，避免改写已有快捷方式与 Codex 配置。
+
+## 2026-10-15 同步 v1.9.0
+
+本次统一应用、通用 Mac 包、定制更新源及修订号比较见 [v1.9.0-canvaspro.1 发布说明](releases/v1.9.0-canvaspro.1.md)。新版 Codex 的 Pure API 认证需要在本机供应商配置显式携带 Key，不能继续仅依赖 auth.json；凭据仍只写本机，不应分享配置文件内容。上方首发测试计数不代表新版结果。

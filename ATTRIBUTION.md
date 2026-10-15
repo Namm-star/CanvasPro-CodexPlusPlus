@@ -14,9 +14,11 @@ The launcher, manager, provider configuration, protocol adapters, session manage
 
 ## CanvasPro 定制 / CanvasPro Edition
 
-维护者 / Maintainer: **[Namm-star](https://github.com/Namm-star)**  
-仓库 / Repository: <https://github.com/Namm-star/CanvasPro-CodexPlusPlus>  
+维护者 / Maintainer: **[Namm-star](https://github.com/Namm-star)**
+仓库 / Repository: <https://github.com/Namm-star/CanvasPro-CodexPlusPlus>
 首次定制日期 / Initial modification date: **2026-10-02**
+
+2026-10-15 同步 / Upstream synchronization: **v1.9.0**, commit `a5f531d0d2d510a984890f26fdbbc98d995c12ad`。继续保留上游作者、历史和许可证；CanvasPro 定制接入、更新源及打包变化单独记录在 [开发记录](docs/development/CANVASPRO_HISTORY.md)。
 
 本定制版修改默认供应商为 CanvasPro New API，增加填写用户 API Key 后保存并启动 Codex 的入口，内置已核对的四款 GPT 文本模型，并调整使用说明、安装包和发布资料。已有供应商及上游功能继续保留。具体改动可查看 Git 提交和 [docs/CANVASPRO.md](docs/CANVASPRO.md)。
 

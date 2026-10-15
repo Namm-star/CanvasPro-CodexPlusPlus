@@ -49,7 +49,13 @@ fn key_only_setup_writes_canvaspro_responses_config_in_an_isolated_home() {
     assert!(config.contains(r#"wire_api = "responses""#));
     assert!(config.contains(r#"model = "gpt-6.1-sol""#));
     assert!(!config.contains("jojocode.com"));
-    assert!(!config.contains("sk-local-fixture"));
+    // 新版 Codex 的 Pure API 供应商不再借用 auth.json，必须显式携带本机 Key。
+    let document = config.parse::<toml_edit::DocumentMut>().unwrap();
+    let provider_id = document["model_provider"].as_str().unwrap();
+    assert_eq!(
+        document["model_providers"][provider_id]["experimental_bearer_token"].as_str(),
+        Some("sk-local-fixture")
+    );
     let auth: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(temp.path().join("auth.json")).unwrap(),
     ).unwrap();
@@ -66,4 +72,20 @@ fn fresh_defaults_cannot_overwrite_multiple_existing_providers() {
     let store = SettingsStore::new(path.clone());
     assert!(store.save(&BackendSettings::default()).is_err());
     assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+}
+
+#[test]
+fn preferences_saved_before_entering_a_key_preserve_the_canvaspro_endpoint() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = SettingsStore::new(temp.path().join("settings.json"));
+    store.update(serde_json::json!({"codexAppSessionShare": false})).unwrap();
+    let profile = store.load().unwrap().active_relay_profile();
+    assert_eq!(profile.base_url, CANVASPRO_BASE_URL);
+    assert_eq!(profile.upstream_base_url, CANVASPRO_BASE_URL);
+    assert_eq!(profile.model, CANVASPRO_DEFAULT_MODEL);
+    assert!(profile.api_key.is_empty());
+    assert!(profile.config_contents.contains(CANVASPRO_BASE_URL));
+    assert!(!profile.config_contents.contains("experimental_bearer_token"));
+    assert!(!temp.path().join("config.toml").exists());
+    assert!(!temp.path().join("auth.json").exists());
 }

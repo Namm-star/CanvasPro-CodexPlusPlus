@@ -2,6 +2,7 @@ import { DEFAULT_AUTO_COMPACT_PERCENT, normalizeAutoCompactPercent } from "./aut
 
 export type ModelMetadata = Record<string, unknown>;
 export type ModelMetadataMap = Record<string, ModelMetadata>;
+export type ModelFastSupportMode = "inherit" | "supported" | "unsupported";
 
 export type ImportedModelMetadata = {
   slug: string;
@@ -227,6 +228,27 @@ export function suffixWindowTokens(suffix: string): number | null {
 /// 后缀对应的窗口字符串（供「上下文窗口」列初值/写回用）；无有效后缀返回 null。
 export function suffixWindowString(rowName: string): string | null {
   return parseModelRowName(rowName).suffixWindow;
+}
+
+/// 归一化「上下文大小 / 压缩上下文大小」这类顶层数字输入框的内容（issue #2302）。
+///
+/// 背景：这两个字段写进 config.toml 时必须是纯数字，用户按模型列表的 `[1M]` 习惯
+/// 输入 `1M` / `256K` 时，旧的 `replace(/[^\d]/g, "")` 会把 `1M` 静默剥成 `1`——
+/// 于是写入的窗口变成 1，Codex 反复重跑任务，而界面上看不出任何异常。
+///
+/// 这里把可识别的 K/M 单位展开成 token 数（复用 suffixWindowTokens 的同一套单位
+/// 规则，避免两处对「什么算合法输入」判断分叉）；识别不了的输入按原样返回，交给
+/// 调用方继续保持原有的「只保留数字」行为。
+/// - `"1M"` → `"1000000"`；`"256k"` → `"256000"`；`"200000"` → `"200000"`
+/// - `"1M5"` → `"15"`（非法单位位置，退回剥数字）；`""` → `""`
+export function normalizeTokenCountInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const suffixTokens = suffixWindowTokens(trimmed);
+  if (suffixTokens !== null) return String(suffixTokens);
+  // 不能整体识别时（例如输入到一半的 `1M2`），退回剥数字，保持可编辑。
+  const digits = trimmed.replace(/[^\d]/g, "");
+  return digits === "0" ? "" : digits;
 }
 
 /// 内置元数据命中时的行列回填裁决（窗口 + 压缩）：仅当对应列为空且无 [1M]
@@ -671,6 +693,49 @@ function documentCandidates(root: unknown): ModelMetadata[] | null {
   if (isRecord(root) && Array.isArray(root.models)) return root.models.filter(isRecord);
   if (isRecord(root) && typeof root.slug === "string") return [root];
   return null;
+}
+
+function speedTierIs(value: unknown, id: string): boolean {
+  const tier = typeof value === "string" ? value : isRecord(value) ? value.id : null;
+  return typeof tier === "string" && tier.trim().toLowerCase() === id;
+}
+
+/** 显式空数组表示禁用；缺失字段才表示继承，不能从模型名称猜测 Fast 能力。 */
+export function modelFastSupportMode(metadata: ModelMetadata | null | undefined): ModelFastSupportMode {
+  const mode = metadata?.codex_plus_fast_support;
+  if (mode === "inherit" || mode === "supported" || mode === "unsupported") return mode;
+  if (Array.isArray(metadata?.service_tiers)) {
+    return metadata.service_tiers.some((tier) => speedTierIs(tier, "priority")) ? "supported" : "unsupported";
+  }
+  if (Array.isArray(metadata?.additional_speed_tiers)) {
+    return metadata.additional_speed_tiers.some((tier) => speedTierIs(tier, "fast")) ? "supported" : "unsupported";
+  }
+  return "inherit";
+}
+
+/** 独立声明 Fast 模式，不修改供应商原始档位；继承可以完整恢复原始能力。 */
+export function setModelFastSupportMode(metadata: ModelMetadata, mode: ModelFastSupportMode): ModelMetadata {
+  return { ...metadata, codex_plus_fast_support: mode };
+}
+
+/** 在当前导入草稿中修改能力；不写 profile，取消仍沿用原有草稿回滚。 */
+export function synchronizeModelMetadataFastSupport(
+  source: string,
+  targetSlug: string,
+  mode: ModelFastSupportMode,
+): { document: string; preview: ImportedModelMetadata } | null {
+  let root: unknown;
+  try {
+    root = source.trim() ? JSON.parse(unwrapJsonCompatibleDocument(source))
+      : { models: [{ slug: modelSlugFromRowName(targetSlug) }] };
+  } catch { return null; }
+  const matches = documentCandidates(root)?.filter((entry) => slugMatchesIgnoreCase(entry.slug, targetSlug));
+  if (!matches || matches.length !== 1) return null;
+  const next = setModelFastSupportMode(matches[0], mode);
+  Object.assign(matches[0], next);
+  const document = JSON.stringify(root, null, 2);
+  const parsed = parseModelMetadataDocument(document, targetSlug);
+  return parsed.ok ? { document, preview: parsed.value } : null;
 }
 
 // 强制管理字段顺序，避免保存后 context_window 跑到压缩字段之后。

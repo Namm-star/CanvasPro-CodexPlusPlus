@@ -4,9 +4,12 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-pub const DEFAULT_REPOSITORY: &str = "BigPizzaV3/CodexPlusPlus";
+#[cfg(any(target_os = "macos", test))]
+pub mod macos;
+
+pub const DEFAULT_REPOSITORY: &str = "Namm-star/CanvasPro-CodexPlusPlus";
 pub const DEFAULT_LATEST_JSON_URL: &str =
-    "https://github.com/BigPizzaV3/CodexPlusPlus/releases/latest/download/latest.json";
+    "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/latest/download/latest.json";
 const UPDATE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -67,7 +70,21 @@ pub fn is_newer_version(candidate: &str, current: &str) -> anyhow::Result<bool> 
     let len = left.len().max(right.len());
     left.resize(len, 0);
     right.resize(len, 0);
-    Ok(left > right)
+    if left != right {
+        return Ok(left > right);
+    }
+    // 同一上游版本的定制修订也能更新；其它历史后缀保留原来的比较语义。
+    Ok(canvaspro_revision(candidate)? > canvaspro_revision(current)?)
+}
+
+fn canvaspro_revision(value: &str) -> anyhow::Result<u64> {
+    match value.trim().split_once("-canvaspro.") {
+        None => Ok(0),
+        Some((_, revision)) if !revision.is_empty() && revision.bytes().all(|b| b.is_ascii_digit()) => {
+            revision.parse::<u64>().map_err(Into::into)
+        }
+        Some(_) => anyhow::bail!("Invalid CanvasPro revision: {value}"),
+    }
 }
 
 pub fn release_from_github_payload(payload: &Value) -> anyhow::Result<Release> {
@@ -275,7 +292,17 @@ pub async fn perform_update(
             "bytes": bytes.len()
         }),
     );
-    if let Err(error) = launch_installer(&installer_path) {
+    #[cfg(target_os = "macos")]
+    let launch_result = {
+        let path = installer_path.clone();
+        let version = release.version.clone();
+        tokio::task::spawn_blocking(move || macos::launch_update(&path, &version))
+            .await
+            .map_err(|error| anyhow::anyhow!("准备 macOS 自动更新失败：{error}"))?
+    };
+    #[cfg(not(target_os = "macos"))]
+    let launch_result = launch_installer(&installer_path);
+    if let Err(error) = launch_result {
         let _ = crate::diagnostic_log::append_diagnostic_log(
             "update.launch.failed",
             json!({

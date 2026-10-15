@@ -19,6 +19,35 @@ fn version_comparison_uses_numeric_segments() {
 }
 
 #[test]
+fn canvaspro_revisions_upgrade_without_losing_numeric_version_precedence() {
+    assert!(is_newer_version("v1.9.0-canvaspro.2", "1.9.0-canvaspro.1").unwrap());
+    assert!(is_newer_version("v1.9.0-canvaspro.10", "1.9.0-canvaspro.2").unwrap());
+    assert!(!is_newer_version("v1.9.0-canvaspro.1", "1.9.0-canvaspro.2").unwrap());
+    assert!(!is_newer_version("v1.9.0-canvaspro.1", "1.9.0-canvaspro.1").unwrap());
+    assert!(is_newer_version("v1.9.0-canvaspro.1", "1.5.0-canvaspro.1").unwrap());
+    assert!(is_newer_version("v1.9.1-canvaspro.1", "1.9.0-canvaspro.99").unwrap());
+    assert!(!is_newer_version("v1.9.0", "1.9.0-canvaspro.1").unwrap());
+    assert!(is_newer_version("v1.9.0-canvaspro.1", "1.9.0").unwrap());
+    assert!(is_newer_version("v1.9.0-canvaspro.invalid", "1.9.0").is_err());
+}
+
+#[test]
+fn canvaspro_update_metadata_uses_the_edition_repository() {
+    assert_eq!(codex_plus_core::update::DEFAULT_REPOSITORY, "Namm-star/CanvasPro-CodexPlusPlus");
+    assert!(codex_plus_core::update::DEFAULT_LATEST_JSON_URL.contains("/Namm-star/CanvasPro-CodexPlusPlus/"));
+    let release = release_from_latest_json_payload(&json!({
+        "version": "v1.9.0-canvaspro.1",
+        "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v1.9.0-canvaspro.1",
+        "body": "CanvasPro",
+        "assets": [
+            {"name":"CanvasPro-CodexPlusPlus-1.9.0-canvaspro.1-windows-x64-setup.exe", "url":"https://example.test/setup.exe"},
+            {"name":"CanvasPro-CodexPlusPlus-1.9.0-canvaspro.1-macos-universal.dmg", "url":"https://example.test/app.dmg"}
+        ]
+    })).unwrap();
+    assert!(release.asset_name.unwrap().starts_with("CanvasPro-CodexPlusPlus-"));
+}
+
+#[test]
 fn github_payload_selects_platform_installer() {
     let release = release_from_github_payload(&json!({
         "tag_name": "v1.0.9",
@@ -142,6 +171,54 @@ fn asset_selection_distinguishes_x64_and_arm64_macos_dmgs() {
         );
     } else {
         // Non-macOS platforms should not pick either macOS DMG.
+        assert!(select_update_asset(&assets).is_none());
+    }
+}
+
+#[test]
+fn asset_selection_accepts_universal_macos_dmg_on_either_arch() {
+    // A universal DMG carries no arch token at all. `is_macos_native_arch_asset`
+    // falls through to its "no arch token — assume it matches" branch, so both
+    // x86_64 and arm64 must rank it as a native match. That fallback is what
+    // makes the universal build work, so pin it down here: if someone later
+    // makes an arch token mandatory, this test is what catches it.
+    let assets = vec![(
+        "CodexPlusPlus-1.5.4-macos-universal.dmg".to_string(),
+        "https://example.test/app-universal.dmg".to_string(),
+    )];
+
+    if cfg!(target_os = "macos") {
+        let selected = select_update_asset(&assets)
+            .expect("the universal DMG must be selectable on any macOS arch");
+        assert_eq!(selected.name, "CodexPlusPlus-1.5.4-macos-universal.dmg");
+    } else {
+        assert!(select_update_asset(&assets).is_none());
+    }
+}
+
+#[test]
+fn asset_selection_prefers_universal_over_single_arch_dmg() {
+    // Both shapes are rank 0 for the running arch, so the two must never ship
+    // together — this test documents the collision so a mixed release is not
+    // mistaken for a safe one. The assertion is deliberately loose about which
+    // one wins: the point is that a mixed release is ambiguous.
+    let assets = vec![
+        (
+            "CodexPlusPlus-1.5.4-macos-universal.dmg".to_string(),
+            "https://example.test/app-universal.dmg".to_string(),
+        ),
+        (
+            "CodexPlusPlus-1.5.4-macos-arm64.dmg".to_string(),
+            "https://example.test/app-arm64.dmg".to_string(),
+        ),
+    ];
+
+    if cfg!(target_os = "macos") {
+        assert!(
+            select_update_asset(&assets).is_some(),
+            "a macOS installer is selectable when native and universal coexist"
+        );
+    } else {
         assert!(select_update_asset(&assets).is_none());
     }
 }

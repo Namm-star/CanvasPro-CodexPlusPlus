@@ -36,15 +36,9 @@ Download the edition installer and corresponding source from [CanvasPro GitHub R
 
 - Windows: `CanvasPro-CodexPlusPlus-*-windows-x64-setup.exe`
 - Corresponding source: `CanvasPro-CodexPlusPlus-*-source.zip`; distribute it alongside the installer.
-- macOS Apple Silicon (M series): `CanvasPro-CodexPlusPlus-*-macos-arm64.dmg`
-- macOS Intel: `CanvasPro-CodexPlusPlus-*-macos-x64.dmg`
+- macOS Intel / Apple Silicon universal: `CanvasPro-CodexPlusPlus-*-macos-universal.dmg`
 
-After installation, two entry points are available:
-
-- `Codex++`: silently starts the official desktop app with saved provider settings and enhancements.
-- `Codex++ Manager`: manages providers, models, tools, sessions, enhancements, scripts, updates, and diagnostics.
-
-Install the official Codex desktop app first, then this edition. The Windows installer creates Desktop and Start Menu shortcuts. On macOS, open the matching DMG and drag both “Codex++.app” and “Codex++ 管理工具.app” into Applications. Follow the API key setup below.
+The new version is one unified Codex++ app. On Windows, use its Desktop or Start Menu entry. On macOS, open the universal DMG and drag the visible Codex++.app to Applications. The hidden legacy manager shim exists only for upgrade compatibility. Install the official Codex desktop app separately.
 
 ## Get and Use a CanvasPro API Key
 
@@ -64,13 +58,13 @@ Check your account balance and top up through the site's prompts if needed. API 
 
 ### 3. Save and launch
 
-1. Open Codex++ Manager and find “CanvasPro New API” on the overview page.
+1. Open Codex++ and find “CanvasPro New API” on the overview page.
 2. Paste the complete key into “CanvasPro API Key”. Do not include `Bearer `, JSON, request headers, or multiple lines.
 3. Select `gpt-6.1-sol` (the default), `gpt-6-sol`, `gpt-6-astra`, or `gpt-5.6-sol`.
 4. Click “Save and launch Codex”. The endpoint `https://api.canvasproai.com/v1` and Responses protocol are preset.
 5. Start a new task and send a short message to confirm a reply. This request is billable; review usage and charges on the API site.
 
-Later, launch through `Codex++` to reuse your saved key. The manager clears the input after saving while keeping the saved key locally. To replace it, enter a new key and save and launch again.
+Later, open `Codex++` and click Save and launch Codex or the launch button to reuse your saved key. The manager clears the input after saving while keeping the saved key locally. To replace it, enter a new key and save and launch again.
 
 See the [full usage guide](docs/CANVASPRO.md) for troubleshooting and manual settings. Do not post complete keys in group chats, screenshots, or Issues. If a key is exposed, disable or delete it on the key page and create a replacement.
 
@@ -82,135 +76,26 @@ Scan the QR code with WeChat on your phone, or save the image and recognize it i
 
 <img src="docs/images/canvaspro-support-group-20261004.png" alt="CanvasPro Infinite Canvas support group WeChat QR code" width="320">
 
-The screenshot states that this QR code is valid until **October 11**. If it expires, use [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues) to request the latest way to join.
+This historical screenshot expired on **October 11, 2026**. For a current invitation, use [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues) to request the latest way to join.
 
 When reporting a problem, include your operating system, package version, model, and error message. Do not include a complete API key.
 
-## Current Features
+## Upstream Sync
 
-| Area | Capabilities |
-| --- | --- |
-| Provider configuration | Official login, official login plus API, pure API, and aggregate providers; Grok provider management; Responses / Chat Completions; model tests, model discovery, Provider Doctor, cc-switch and deep-link imports |
-| Models and context | Per-model context windows, auto-compact limits, `model_catalog_json`, model metadata import (models.json), shared config, and per-provider MCP, Skill, and Plugin selection |
-| Session management | Local session scanning, bulk deletion, Markdown export, token usage history, Provider metadata sync, and backups |
-| WeChat connection | QR login connects personal WeChat to local Codex sessions; each WeChat contact maps to a separate session, with an allowed-user list |
-| Codex enhancements | Plugin marketplace and model whitelist handling, session actions, paste fix, Chinese locale, fast startup, conversation width and scroll restore, service-tier controls, Goals, Stepwise, skin management, and image overlay |
-| Development workflow | Project move, Upstream worktree creation, thread IDs, and Zed Remote project discovery and opening |
-| Scripts and maintenance | User script installation and toggles, app detection, shortcuts, Watcher, environment cleanup, logs, diagnostics, health checks, and Release updates |
+Development version **v1.9.0-canvaspro.1** integrates upstream v1.9.0, including model catalogs, Responses and tool-call fixes, provider configuration, aggregation, isolated Codex instances, and usage indicators. Available downloads are the published attachments on [Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases).
 
-Every UI enhancement is independently configurable. Disabling the global enhancement switch still leaves Codex++ available as a provider and launch manager.
+CanvasPro remains the default provider. The unified app saves the user's own key before launching Codex. Its updater now uses this edition's repository and recognizes CanvasPro revision numbers. To upgrade from the old edition, download this repository's installer first; the old binary still has its original update source.
 
-## Provider Modes
+The static model presets do not automatically track every model on the API site. Existing upstream ecosystem tools and Claude enhancements do not imply equivalent models or official applications are supplied by CanvasPro.
 
-Official login, mixed API, and pure API are stored and switched separately:
+## Data and Compatibility
 
-| Mode | Purpose | Authentication boundary |
-| --- | --- | --- |
-| Official login | Use only the official ChatGPT / Codex account | Removes custom providers and API keys while preserving official login state |
-| Official login + API | Keep official account features and plugins while routing model requests to a compatible API | Stores the key as a provider bearer token, not in pure API `auth.json` |
-| Pure API | Use a custom Base URL and key without an official account | Maintains independent `config.toml` and API-key auth without mixing official credentials |
-| Aggregate provider | Route across multiple ordinary API providers | Supports failover, conversation round-robin, request round-robin, and weighted round-robin |
+Existing application identity and configuration directories remain compatible. Codex uses the configured CODEX_HOME or ~/.codex; Codex++ state remains in ~/.codex-session-delete. API keys are stored locally in provider configuration and authentication files; do not share their full contents.
 
-Each provider can configure Responses or Chat Completions, model lists, a test model, User-Agent, context windows, auto-compact limits, and enabled MCP servers, Skills, and Plugins. Chat Completions can be converted locally into the Responses protocol used by Codex.
+The Mac DMG is universal and uses ad-hoc signing, **without Apple notarization**. See [Apple's official guidance](https://support.apple.com/102445) if macOS blocks it. Only the visible Codex++.app needs to be installed; the hidden manager shim supports legacy updaters.
 
-Per-model windows accept values such as `1M`, `200K`, or plain integers. Codex++ generates a dedicated `model_catalog_json` for Codex.
+## Development and License
 
-Provider switching saves the current profile before applying the target profile. Real API keys remain local and should never be posted in logs, screenshots, or issues.
+See the [maintenance guide](docs/development/CANVASPRO_MAINTENANCE.md) for tests, builds, releases, and rollback. Each release's notes and manifests record its actual checks and limitations.
 
-## Codex Enhancements
-
-- Session delete, bulk delete, Markdown export, and project move actions.
-- Plugin marketplace unlock, plugin auto-expand, and model whitelist handling.
-- Plain-text paste, forced Chinese locale, startup acceleration, and native menu localization.
-- Conversation width, scroll restoration, thread IDs, service-tier controls, and Goals.
-- Stepwise suggestions with a separate API, model, item count, and timeout.
-- Skin management: search, preview, install, and image replacement for Dream Skin community themes.
-- Upstream worktrees, Zed Remote, custom image overlays, and user scripts.
-
-Settings that depend on renderer injection generally require saving and restarting Codex++.
-
-## Updates and Packages
-
-Codex++ publishes installers through GitHub Releases. Windows builds an NSIS installer, while macOS builds separate Intel x64 and Apple Silicon arm64 DMGs.
-
-The manager's About page can check and start updates. When the silent launcher finds a new version, it opens the manager directly on the update prompt.
-
-## Data Locations
-
-- Codex config: `~/.codex/config.toml`
-- Codex auth state: `~/.codex/auth.json`
-- Codex local database: prefers `~/.codex/sqlite/*.db`, falls back to legacy `~/.codex/state_5.sqlite`
-- Codex++ state and logs: `~/.codex-session-delete/`
-- Provider Sync backups: `~/.codex/backups_state/provider-sync`
-
-`~/.codex` above refers to the Codex home directory: it follows the `CODEX_HOME` environment variable when set, and defaults to `.codex` under the user profile otherwise.
-
-## FAQ
-
-### The Codex++ menu does not appear
-
-Launch through the `Codex++` entry instead of opening the official app directly. Check the detected app path, launch status, and diagnostic logs in the manager's Maintenance and About pages.
-
-### Requests fail after switching providers
-
-Run the model test or Provider Doctor from the provider detail page. Verify that the protocol, Base URL, key, and test model match. Pure API and official-login-plus-API use different authentication locations; do not manually copy `auth.json` between them.
-
-### How is Upstream worktree different from Codex native creation?
-
-Codex++ updates the remote branch first, then creates the worktree as if you ran:
-
-```bash
-git worktree add -b <new-branch> <worktree-path> upstream/<base-branch>
-```
-
-The new worktree starts from the fresh remote tracking branch instead of the local HEAD used by the current session. If Codex++ cannot safely recognize the current Codex version's native worktree form, use the Codex++ menu entry and enter the repository path, branch name, worktree path, remote, and base branch manually.
-
-### macOS says the app cannot be opened or is damaged
-
-Unsigned and unnotarized builds may be blocked by Gatekeeper. Allow the app in System Settings -> Privacy & Security. For formal distribution, configure Apple Developer ID signing and notarization.
-
-### Does it support Intel Macs?
-
-Yes. Releases provide both `macos-x64.dmg` and `macos-arm64.dmg`. Intel Macs should use the x64 package, while Apple Silicon Macs should use the arm64 package.
-
-## Development
-
-```bash
-cd apps/codex-plus-manager
-npm ci
-npm run check
-npm run vite:build
-
-cd ../..
-cargo fmt --all -- --check
-cargo test
-cargo build --release
-```
-
-Project structure:
-
-```text
-apps/
-  codex-plus-launcher/          Silent launcher
-  codex-plus-manager/           Tauri manager
-assets/inject/
-  renderer-inject.js            Enhancement script injected into Codex
-crates/
-  codex-plus-core/              Launch, injection, config, update, install, bridge
-  codex-plus-data/              Session data, export, Provider Sync
-scripts/installer/
-  windows/CodexPlusPlus.nsi     Windows NSIS installer
-  macos/package-dmg.sh          macOS DMG packager
-```
-
-## License
-
-Copyright (C) 2026 BigPizzaV3
-
-CodexPlusPlus is licensed under the [GNU Affero General Public License v3.0](LICENSE), SPDX identifier `AGPL-3.0-only`. Modified versions that are distributed or offered to users over a network must provide the corresponding source code as required by AGPLv3.
-
-The license covers CodexPlusPlus code only. It does not grant rights to OpenAI, ChatGPT, Codex trademarks, application assets, or other third-party content.
-
-## Compatibility
-
-Codex++ depends on the official desktop app's page structure, CDP behavior, and local data formats. Official app updates may require injection updates. Keep backups before changing provider configuration or local session data.
+Copyright (C) 2026 BigPizzaV3 and upstream contributors. Retained documents: [AGPL-3.0-only](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md), and [attribution](ATTRIBUTION.md). Provide matching complete source alongside installers. Third-party applications are installed separately.

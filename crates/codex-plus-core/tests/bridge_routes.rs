@@ -34,6 +34,10 @@ async fn bridge_routes_cover_all_current_paths() {
         ("/manager/open", json!({})),
         ("/manager/open-transient", json!({})),
         ("/backend/status", json!({})),
+        ("/whale/balance", json!({})),
+        ("/whale/session", json!({"session_id": "s1"})),
+        ("/whale/history", json!({})),
+        ("/whale/full", json!({"path":"/dsh-whale/size.json"})),
         ("/codex-model-catalog", json!({})),
         ("/codex-config-model", json!({})),
         (
@@ -41,39 +45,10 @@ async fn bridge_routes_cover_all_current_paths() {
             json!({"url": "http://example.com", "method": "POST"}),
         ),
         ("/ads", json!({})),
-        ("/zed-remote/status", json!({})),
-        (
-            "/zed-remote/resolve-host",
-            json!({"hostId": "remote-ssh-codex-managed:remote"}),
-        ),
-        (
-            "/zed-remote/fallback-request",
-            json!({"hostId": "remote-ssh-codex-managed:remote"}),
-        ),
-        (
-            "/zed-remote/open",
-            json!({"ssh": {"host": "example.com"}, "path": "/home/app.py"}),
-        ),
-        ("/zed-remote/projects", json!({})),
         ("/script-market/list", json!({})),
-        ("/script-market/install", json!({"id": "codex-relay-balance"})),
         (
-            "/zed-remote/remember-project",
-            json!({"ssh": {"host": "example.com"}, "path": "/home/app.py"}),
-        ),
-        (
-            "/zed-remote/forget-project",
-            json!({"id": "zed-remote-project:test"}),
-        ),
-        ("/upstream-worktree/status", json!({})),
-        ("/upstream-worktree/defaults", json!({"repoPath": "/repo"})),
-        (
-            "/upstream-worktree/prepare",
-            json!({"repoPath": "/repo", "remote": "upstream", "baseBranch": "main"}),
-        ),
-        (
-            "/upstream-worktree/create",
-            json!({"repoPath": "/repo", "branchName": "feature/demo"}),
+            "/script-market/install",
+            json!({"id": "codex-relay-balance"}),
         ),
         ("/stepwise/settings", json!({})),
         (
@@ -81,7 +56,10 @@ async fn bridge_routes_cover_all_current_paths() {
             json!({"request": {"lastUserMessage": "请继续", "lastAssistantMessage": "已完成"}}),
         ),
         ("/stepwise/test", json!({})),
-        ("/delete", json!({"session_id": "s1", "title": "First"})),
+        (
+            "/delete",
+            json!({"session_id": "s1", "title": "First", "host_id": "local"}),
+        ),
         ("/undo", json!({"undo_token": "undo-1"})),
         (
             "/export-markdown",
@@ -92,12 +70,8 @@ async fn bridge_routes_cover_all_current_paths() {
             json!({"session_id": "s1", "title": "First"}),
         ),
         (
-            "/session/export",
+            "/thread-usage-live",
             json!({"session_id": "s1", "title": "First"}),
-        ),
-        (
-            "/session/import",
-            json!({"kind": "codex-rollout", "session_id": "s1", "content": "{}"}),
         ),
         ("/archived-thread", json!({"title": "Archived"})),
     ];
@@ -109,6 +83,101 @@ async fn bridge_routes_cover_all_current_paths() {
             "{path} should be routed"
         );
     }
+}
+
+#[tokio::test]
+async fn thread_usage_live_route_returns_recent_token_events() {
+    // 内置状态栏走的就是这条路由；它必须与 /thread-usage-history 分开，
+    // 因为状态栏按秒级轮询，拿不动全量历史。
+    let result = handle_bridge_request(
+        test_context(),
+        "/thread-usage-live",
+        json!({"session_id": "s1", "title": "First"}),
+    )
+    .await;
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["session_id"], "s1");
+    assert_eq!(result["events"][0]["cached_input_tokens"], json!(900));
+    assert_eq!(result["events"][0]["context_window"], json!(258400));
+}
+
+#[tokio::test]
+async fn whale_routes_require_both_enhancements_and_widget_switch() {
+    for (enhancements, widget) in [(false, true), (true, false), (false, false)] {
+        let settings = BackendSettings {
+            enhancements_enabled: enhancements,
+            codex_app_whale_widget_enabled: widget,
+            ..BackendSettings::default()
+        };
+        let ctx = BridgeContext::new(
+            Arc::new(FakeSettings::with_settings(settings)),
+            Arc::new(FakeRuntime::default()),
+            Arc::new(FakeData),
+        );
+        for route in ["/whale/balance", "/whale/session", "/whale/history"] {
+            let result =
+                handle_bridge_request(ctx.clone(), route, json!({"session_id":"s1"})).await;
+            assert_eq!(result["status"], "disabled", "{route}");
+        }
+        let result = handle_bridge_request(
+            ctx,
+            "/whale/full",
+            json!({"path":"/dsh-whale/size.json","method":"PUT","body":{"scale":1.5}}),
+        )
+        .await;
+        assert_eq!(result["status"], 403);
+    }
+    let settings = BackendSettings {
+        codex_app_whale_widget_enabled: true,
+        ..BackendSettings::default()
+    };
+    let ctx = BridgeContext::new(
+        Arc::new(FakeSettings::with_settings(settings)),
+        Arc::new(FakeRuntime::default()),
+        Arc::new(FakeData),
+    );
+    let result =
+        handle_bridge_request(ctx.clone(), "/whale/session", json!({"session_id":"s1"})).await;
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["sessionId"], "s1");
+    let result = handle_bridge_request(ctx, "/whale/balance", json!({})).await;
+    assert_eq!(result["status"], "unsupported");
+    assert!(result["balances"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn whale_local_statistics_toggle_stops_both_current_and_machine_log_routes() {
+    let service = Arc::new(FakeSettings::with_settings(BackendSettings {
+        codex_app_whale_widget_enabled: true,
+        ..BackendSettings::default()
+    }));
+    let path = service.whale_ledger_path();
+    let ctx = BridgeContext::new(
+        service,
+        Arc::new(FakeRuntime::default()),
+        Arc::new(FakeData),
+    );
+    let history = handle_bridge_request(ctx.clone(), "/whale/history", json!({})).await;
+    assert_eq!(history["status"], "ok");
+    let result = handle_bridge_request(
+        ctx.clone(),
+        "/whale/full",
+        json!({"path":"/dsh-whale/size.json","method":"PUT","body":{"codexStatsOn":false}}),
+    )
+    .await;
+    assert_eq!(result["status"], 200);
+    assert!(path.exists());
+    for route in ["/whale/session", "/whale/history"] {
+        let result = handle_bridge_request(ctx.clone(), route, json!({"session_id":"s1"})).await;
+        assert_eq!(result["status"], "disabled");
+    }
+    let result = handle_bridge_request(
+        ctx,
+        "/whale/full",
+        json!({"path":"/dsh-whale/api-models.json"}),
+    )
+    .await;
+    assert_eq!(result["body"]["codexStatsOn"], false);
 }
 
 #[tokio::test]
@@ -297,58 +366,6 @@ async fn bridge_context_core_with_app_dir_exposes_runtime_codex_app_version() {
 }
 
 #[tokio::test]
-async fn upstream_worktree_routes_are_dispatched_to_runtime() {
-    let ctx = test_context();
-
-    assert_eq!(
-        handle_bridge_request(ctx.clone(), "/upstream-worktree/status", json!({})).await,
-        json!({"status": "ok", "feature": "upstream-worktree"})
-    );
-    assert_eq!(
-        handle_bridge_request(
-            ctx.clone(),
-            "/upstream-worktree/defaults",
-            json!({"repoPath": "/repo"}),
-        )
-        .await,
-        json!({
-            "status": "ok",
-            "repoRoot": "/repo",
-            "defaultRemote": "upstream",
-            "defaultBaseBranch": "main",
-        })
-    );
-    assert_eq!(
-        handle_bridge_request(
-            ctx.clone(),
-            "/upstream-worktree/create",
-            json!({"repoPath": "/repo", "branchName": "feature/demo"}),
-        )
-        .await,
-        json!({
-            "status": "ok",
-            "repoRoot": "/repo",
-            "branchName": "feature/demo",
-            "worktreePath": "/repo-feature-demo",
-        })
-    );
-    assert_eq!(
-        handle_bridge_request(
-            ctx,
-            "/upstream-worktree/prepare",
-            json!({"repoPath": "/repo", "remote": "upstream", "baseBranch": "main"}),
-        )
-        .await,
-        json!({
-            "status": "ok",
-            "repoRoot": "/repo",
-            "sourceRef": "upstream/main",
-            "qualifiedSourceRef": "refs/remotes/upstream/main",
-        })
-    );
-}
-
-#[tokio::test]
 async fn stepwise_routes_use_settings_service() {
     let settings = BackendSettings {
         codex_app_stepwise_enabled: false,
@@ -431,7 +448,7 @@ async fn settings_routes_use_settings_service() {
     let updated = handle_bridge_request(
         ctx.clone(),
         "/settings/set",
-        json!({"providerSyncEnabled": true, "codexAppSessionDelete": false, "codexAppServiceTierControls": true, "codexAppPetRealMouseLook": true}),
+        json!({"providerSyncEnabled": true, "codexAppSessionDelete": false, "codexAppServiceTierControls": true, "codexAppPetRealMouseLook": true, "codexAppActivityOverlayRight": true}),
     )
     .await;
     let loaded = handle_bridge_request(ctx, "/settings/get", json!({})).await;
@@ -440,6 +457,7 @@ async fn settings_routes_use_settings_service() {
     assert_eq!(updated["codexAppSessionDelete"], false);
     assert_eq!(updated["codexAppServiceTierControls"], true);
     assert_eq!(updated["codexAppPetRealMouseLook"], true);
+    assert_eq!(updated["codexAppActivityOverlayRight"], true);
     assert_eq!(loaded, updated);
 }
 
@@ -511,79 +529,6 @@ async fn runtime_status_devtools_repair_and_ads_routes_are_dispatched() {
         handle_bridge_request(ctx.clone(), "/ads", json!({})).await,
         json!({"version": 1, "ads": [{"id": "runtime-ad"}]})
     );
-    assert_eq!(
-        handle_bridge_request(ctx.clone(), "/zed-remote/status", json!({})).await,
-        json!({"status": "ok", "platformSupported": true, "zedAppFound": true, "zedCliFound": false})
-    );
-    assert_eq!(
-        handle_bridge_request(
-            ctx.clone(),
-            "/zed-remote/resolve-host",
-            json!({"hostId": "remote-ssh-codex-managed:remote"}),
-        )
-        .await,
-        json!({"status": "ok", "ssh": {"user": "longnv", "host": "192.168.100.31", "port": null}})
-    );
-    assert_eq!(
-        handle_bridge_request(
-            ctx.clone(),
-            "/zed-remote/fallback-request",
-            json!({"hostId": "remote-ssh-codex-managed:remote"}),
-        )
-        .await,
-        json!({
-            "status": "ok",
-            "request": {
-                "hostId": "remote-ssh-codex-managed:remote",
-                "ssh": {"user": "longnv", "host": "192.168.100.31", "port": null},
-                "path": "/Users/longnv/bin/repo/sealos-skills",
-            }
-        })
-    );
-    assert_eq!(
-        handle_bridge_request(
-            ctx.clone(),
-            "/zed-remote/open",
-            json!({"ssh": {"host": "example.com"}, "path": "/home/app.py"}),
-        )
-        .await,
-        json!({"status": "ok", "url": "ssh://example.com/home/app.py", "strategy": "addToFocusedWorkspace"})
-    );
-    assert_eq!(
-        handle_bridge_request(ctx.clone(), "/zed-remote/projects", json!({})).await,
-        json!({
-            "status": "ok",
-            "projects": [{
-                "id": "zed-remote-project:test",
-                "label": "sealos-skills",
-                "hostId": "remote-ssh-codex-managed:remote",
-                "ssh": {"user": "longnv", "host": "192.168.100.31", "port": null},
-                "path": "/Users/longnv/bin/repo/sealos-skills",
-                "url": "ssh://longnv@192.168.100.31/Users/longnv/bin/repo/sealos-skills",
-                "source": "codexRemoteProject",
-                "lastOpenedAtMs": null,
-                "isCurrent": false
-            }]
-        })
-    );
-    assert_eq!(
-        handle_bridge_request(
-            ctx.clone(),
-            "/zed-remote/remember-project",
-            json!({"ssh": {"host": "example.com"}, "path": "/home/app.py"}),
-        )
-        .await,
-        json!({"status": "ok", "remembered": true})
-    );
-    assert_eq!(
-        handle_bridge_request(
-            ctx,
-            "/zed-remote/forget-project",
-            json!({"id": "zed-remote-project:test"}),
-        )
-        .await,
-        json!({"status": "ok", "removed": 1})
-    );
 }
 
 #[tokio::test]
@@ -618,7 +563,7 @@ async fn data_routes_forward_payloads_to_data_service() {
         handle_bridge_request(
             ctx.clone(),
             "/delete",
-            json!({"session_id": "s1", "title": "First"}),
+            json!({"session_id": "s1", "title": "First", "host_id": "local"}),
         )
         .await["undo_token"],
         "undo-s1"
@@ -694,7 +639,7 @@ async fn bridge_context_core_with_data_uses_injected_data_service() {
     let result = handle_bridge_request(
         ctx,
         "/delete",
-        json!({"session_id": "s1", "title": "First"}),
+        json!({"session_id": "s1", "title": "First", "host_id": "local"}),
     )
     .await;
 
@@ -757,6 +702,49 @@ async fn user_script_manager_scans_and_persists_inventory_shape() {
         .unwrap(),
         json!({"enabled": false, "scripts": {}})
     );
+}
+
+#[tokio::test]
+async fn delete_refuses_remote_and_unknown_hosts_instead_of_local_fallback() {
+    let ctx = test_context();
+    for host in [
+        json!(null),
+        json!(""),
+        json!("remote-ssh:fixture"),
+        json!({"id":"local"}),
+    ] {
+        let result = handle_bridge_request(
+            ctx.clone(),
+            "/delete",
+            json!({
+                "session_id": "s1", "title": "Same ID on another host", "host_id": host,
+            }),
+        )
+        .await;
+        // FakeData 必定返回 local_deleted/undo-s1，失败说明没有进入本地服务。
+        assert_eq!(result["status"], "failed");
+        assert!(result.get("undo_token").is_none());
+    }
+    let conflict = handle_bridge_request(
+        ctx.clone(),
+        "/delete",
+        json!({
+            "session_id":"s1", "host_id":"local", "hostId":"remote-ssh:fixture",
+        }),
+    )
+    .await;
+    assert_eq!(conflict["status"], "failed");
+    assert!(conflict.get("undo_token").is_none());
+    let local = handle_bridge_request(
+        ctx,
+        "/delete",
+        json!({
+            "session_id":"s1", "title":"Local", "hostId":"local",
+        }),
+    )
+    .await;
+    assert_eq!(local["status"], "local_deleted");
+    assert_eq!(local["undo_token"], "undo-s1");
 }
 
 #[tokio::test]
@@ -879,7 +867,7 @@ async fn core_runtime_reload_evaluates_enabled_user_bundle_and_status_is_ok() {
     let ctx = BridgeContext::new(
         Arc::new(FakeSettings::default()),
         Arc::new(runtime),
-        Arc::new(FakeData::default())
+        Arc::new(FakeData::default()),
     );
 
     let status = handle_bridge_request(ctx.clone(), "/backend/status", json!({})).await;
@@ -1145,6 +1133,7 @@ async fn launch_lifecycle_uses_hook_supplied_bridge_context_for_injection() {
             debug_port: 9229,
             helper_port: 57321,
             status_store: StatusStore::new(temp.path().join("latest-status.json")),
+            ..Default::default()
         },
         &hooks,
     )
@@ -1170,10 +1159,20 @@ fn test_context() -> BridgeContext {
     )
 }
 
-#[derive(Default)]
 struct FakeSettings {
     settings: Mutex<BackendSettings>,
     codex_app_version: Mutex<String>,
+    whale_ledger_dir: tempfile::TempDir,
+}
+
+impl Default for FakeSettings {
+    fn default() -> Self {
+        Self {
+            settings: Mutex::new(BackendSettings::default()),
+            codex_app_version: Mutex::new(String::new()),
+            whale_ledger_dir: tempfile::TempDir::new().unwrap(),
+        }
+    }
 }
 
 impl FakeSettings {
@@ -1181,6 +1180,7 @@ impl FakeSettings {
         Self {
             settings: Mutex::new(settings),
             codex_app_version: Mutex::new(String::new()),
+            whale_ledger_dir: tempfile::TempDir::new().unwrap(),
         }
     }
 
@@ -1188,12 +1188,16 @@ impl FakeSettings {
         Self {
             settings: Mutex::new(BackendSettings::default()),
             codex_app_version: Mutex::new(version.to_string()),
+            whale_ledger_dir: tempfile::TempDir::new().unwrap(),
         }
     }
 }
 
 #[async_trait]
 impl BridgeSettingsService for FakeSettings {
+    fn whale_ledger_path(&self) -> std::path::PathBuf {
+        self.whale_ledger_dir.path().join("whale.sqlite3")
+    }
     async fn get_settings(&self) -> anyhow::Result<BackendSettings> {
         Ok(self.settings.lock().unwrap().clone())
     }
@@ -1213,22 +1217,18 @@ impl BridgeSettingsService for FakeSettings {
             "codexAppModelWhitelistUnlock",
             "codexAppSessionDelete",
             "codexAppMarkdownExport",
-            "codexAppForceChineseLocale",
             "codexAppThreadIdBadge",
             "codexAppConversationView",
             "codexAppThreadScrollRestore",
-            "codexAppZedRemoteOpen",
-            "codexAppUpstreamWorktreeCreate",
             "codexAppNativeMenuPlacement",
             "codexAppServiceTierControls",
             "codexAppPetRealMouseLook",
+            "codexAppActivityOverlayRight",
+            "codexAppWhaleWidgetEnabled",
         ] {
             if let Some(value) = payload.get(key).and_then(Value::as_bool) {
                 raw.insert(key.to_string(), json!(value));
             }
-        }
-        if let Some(value) = payload.get("launchMode").and_then(Value::as_str) {
-            raw.insert("launchMode".to_string(), json!(value));
         }
         if let Some(value) = payload.get("relayBaseUrl").and_then(Value::as_str) {
             raw.insert("relayBaseUrl".to_string(), json!(value));
@@ -1324,106 +1324,6 @@ impl BridgeRuntimeService for FakeRuntime {
     async fn ads(&self) -> anyhow::Result<Value> {
         Ok(json!({"version": 1, "ads": [{"id": "runtime-ad"}]}))
     }
-
-    async fn zed_remote_status(&self) -> anyhow::Result<Value> {
-        Ok(json!({
-            "status": "ok",
-            "platformSupported": true,
-            "zedAppFound": true,
-            "zedCliFound": false
-        }))
-    }
-
-    async fn resolve_zed_remote_host(&self, payload: Value) -> anyhow::Result<Value> {
-        assert_eq!(payload["hostId"], json!("remote-ssh-codex-managed:remote"));
-        Ok(json!({
-            "status": "ok",
-            "ssh": {"user": "longnv", "host": "192.168.100.31", "port": null}
-        }))
-    }
-
-    async fn fallback_zed_remote_request(&self, payload: Value) -> anyhow::Result<Value> {
-        assert_eq!(payload["hostId"], json!("remote-ssh-codex-managed:remote"));
-        Ok(json!({
-            "status": "ok",
-            "request": {
-                "hostId": "remote-ssh-codex-managed:remote",
-                "ssh": {"user": "longnv", "host": "192.168.100.31", "port": null},
-                "path": "/Users/longnv/bin/repo/sealos-skills",
-            }
-        }))
-    }
-
-    async fn open_zed_remote(&self, payload: Value) -> anyhow::Result<Value> {
-        assert_eq!(payload["path"], json!("/home/app.py"));
-        Ok(
-            json!({"status": "ok", "url": "ssh://example.com/home/app.py", "strategy": "addToFocusedWorkspace"}),
-        )
-    }
-
-    async fn list_zed_remote_projects(&self, _payload: Value) -> anyhow::Result<Value> {
-        Ok(json!({
-            "status": "ok",
-            "projects": [{
-                "id": "zed-remote-project:test",
-                "label": "sealos-skills",
-                "hostId": "remote-ssh-codex-managed:remote",
-                "ssh": {"user": "longnv", "host": "192.168.100.31", "port": null},
-                "path": "/Users/longnv/bin/repo/sealos-skills",
-                "url": "ssh://longnv@192.168.100.31/Users/longnv/bin/repo/sealos-skills",
-                "source": "codexRemoteProject",
-                "lastOpenedAtMs": null,
-                "isCurrent": false
-            }]
-        }))
-    }
-
-    async fn remember_zed_remote_project(&self, payload: Value) -> anyhow::Result<Value> {
-        assert_eq!(payload["path"], json!("/home/app.py"));
-        Ok(json!({"status": "ok", "remembered": true}))
-    }
-
-    async fn forget_zed_remote_project(&self, payload: Value) -> anyhow::Result<Value> {
-        assert_eq!(payload["id"], json!("zed-remote-project:test"));
-        Ok(json!({"status": "ok", "removed": 1}))
-    }
-
-    async fn upstream_worktree_status(&self) -> anyhow::Result<Value> {
-        Ok(json!({"status": "ok", "feature": "upstream-worktree"}))
-    }
-
-    async fn upstream_worktree_defaults(&self, payload: Value) -> anyhow::Result<Value> {
-        assert_eq!(payload["repoPath"], json!("/repo"));
-        Ok(json!({
-            "status": "ok",
-            "repoRoot": "/repo",
-            "defaultRemote": "upstream",
-            "defaultBaseBranch": "main",
-        }))
-    }
-
-    async fn upstream_worktree_prepare(&self, payload: Value) -> anyhow::Result<Value> {
-        assert_eq!(payload["repoPath"], json!("/repo"));
-        assert_eq!(payload["remote"], json!("upstream"));
-        assert_eq!(payload["baseBranch"], json!("main"));
-        Ok(json!({
-            "status": "ok",
-            "repoRoot": "/repo",
-            "sourceRef": "upstream/main",
-            "qualifiedSourceRef": "refs/remotes/upstream/main",
-        }))
-    }
-
-    async fn upstream_worktree_create(&self, payload: Value) -> anyhow::Result<Value> {
-        assert_eq!(payload["repoPath"], json!("/repo"));
-        assert_eq!(payload["branchName"], json!("feature/demo"));
-        Ok(json!({
-            "status": "ok",
-            "repoRoot": "/repo",
-            "branchName": "feature/demo",
-            "worktreePath": "/repo-feature-demo",
-        }))
-    }
 }
 
 impl FakeRuntime {
@@ -1449,6 +1349,13 @@ impl Default for FakeData {
 
 #[async_trait]
 impl BridgeDataService for FakeData {
+    async fn whale_history(&self, _payload: Value) -> anyhow::Result<Value> {
+        Ok(json!({"status":"ok","complete":true,"models":[],"days":[],"records":[]}))
+    }
+    async fn whale_session(&self, session: SessionRef) -> anyhow::Result<Value> {
+        Ok(json!({"status": "ok", "sessionId": session.session_id}))
+    }
+
     async fn delete(&self, session: SessionRef) -> anyhow::Result<DeleteResult> {
         Ok(DeleteResult {
             status: DeleteStatus::LocalDeleted,
@@ -1477,6 +1384,25 @@ impl BridgeDataService for FakeData {
             filename: Some("First.md".to_string()),
             markdown: Some("# First\n".to_string()),
         })
+    }
+
+    async fn thread_usage_live(&self, session: SessionRef) -> anyhow::Result<Value> {
+        Ok(json!({
+            "status": "ok",
+            "session_id": session.session_id,
+            "events": [
+                {
+                    "t": "2026-06-02T05:00:00Z",
+                    "input_tokens": 1200,
+                    "cached_input_tokens": 900,
+                    "output_tokens": 120,
+                    "reasoning_output_tokens": 40,
+                    "total_tokens": 1320,
+                    "context_window": 258400,
+                    "turn_output_tokens": 120
+                }
+            ]
+        }))
     }
 
     async fn thread_usage_history(&self, session: SessionRef) -> anyhow::Result<Value> {
@@ -1512,6 +1438,7 @@ impl BridgeDataService for FakeData {
         Ok(Some(SessionRef {
             session_id: "archived-1".to_string(),
             title,
+            host_id: None,
         }))
     }
 }
@@ -1569,6 +1496,7 @@ impl LaunchHooks for ContextHooks {
         _debug_port: u16,
         _settings: &BackendSettings,
         _extra_args: &[String],
+        _instance: &codex_plus_core::launcher::LaunchInstance,
     ) -> anyhow::Result<CodexLaunch> {
         Ok(CodexLaunch::Process {
             command: vec!["codex".to_string()],
@@ -1620,4 +1548,32 @@ impl LaunchHooks for ContextHooks {
     async fn shutdown_helper(&self, _helper_port: u16) {}
 
     async fn terminate_codex(&self, _launch: &CodexLaunch) {}
+}
+
+#[tokio::test]
+async fn retired_remote_routes_are_unavailable() {
+    let ctx = test_context();
+    for path in [
+        "/zed-remote/status",
+        "/zed-remote/resolve-host",
+        "/zed-remote/fallback-request",
+        "/zed-remote/open",
+        "/zed-remote/projects",
+        "/zed-remote/remember-project",
+        "/zed-remote/forget-project",
+        "/upstream-worktree/status",
+        "/upstream-worktree/defaults",
+        "/upstream-worktree/prepare",
+        "/upstream-worktree/create",
+    ] {
+        let result = handle_bridge_request(ctx.clone(), path, json!({})).await;
+        assert_eq!(result["status"], "failed", "{path}");
+        assert!(
+            result["message"]
+                .as_str()
+                .unwrap()
+                .contains("Unknown bridge path"),
+            "{path}: {result}"
+        );
+    }
 }

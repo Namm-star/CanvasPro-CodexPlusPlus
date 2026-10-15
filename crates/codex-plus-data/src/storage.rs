@@ -7,7 +7,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 pub fn delete_local_from_paths(
@@ -177,12 +177,44 @@ impl SQLiteStorageAdapter {
         self
     }
 
+    /// issue #875：原报错只写「Database not found: <一条路径>」，用户拿不到任何线索。
+    ///
+    /// 现在把「用哪条路径、该路径在不在、还试过哪些候选路径」一并列出来，
+    /// 让用户/我们能立刻分辨是路径解析错了还是库确实不在。
+    fn database_not_found_message(&self) -> String {
+        let mut lines = vec![format!(
+            "Database not found: {} (exists: {})",
+            self.db_path.to_string_lossy(),
+            self.db_path.is_file()
+        )];
+        let others = self
+            .allowed_db_paths
+            .iter()
+            .filter(|path| *path != &self.db_path);
+        let others = others.collect::<Vec<_>>();
+        if !others.is_empty() {
+            lines.push(format!(
+                "候选路径：{}",
+                others
+                    .iter()
+                    .map(|path| format!(
+                        "{} (exists: {})",
+                        path.to_string_lossy(),
+                        path.is_file()
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("、")
+            ));
+        }
+        if let Some(home) = self.codex_home.as_deref() {
+            lines.push(format!("Codex home：{}", home.to_string_lossy()));
+        }
+        lines.join("；")
+    }
+
     pub fn delete_local(&self, session: &SessionRef) -> DeleteResult {
         if !self.db_path.exists() {
-            return failed(
-                &session.session_id,
-                format!("Database not found: {}", self.db_path.to_string_lossy()),
-            );
+            return failed(&session.session_id, self.database_not_found_message());
         }
         let result = (|| -> anyhow::Result<DeleteResult> {
             let mut db = Connection::open(&self.db_path)?;
@@ -392,68 +424,196 @@ impl SQLiteStorageAdapter {
         SessionRef::new(id, row_title.unwrap_or_else(|| title.to_string())).ok()
     }
 
-    pub fn codex_thread_usage_history(&self, session: &SessionRef) -> serde_json::Value {
+    /// 解析会话对应的 rollout 文件。
+    ///
+    /// `Unavailable` 里已经是可直接返回前端的失败对象：语义是「本地没有这个会话的
+    /// 历史」，不是后端故障，所以不走 anyhow；真正的 IO / SQLite 故障走 Err。
+    fn codex_thread_rollout(&self, session: &SessionRef) -> anyhow::Result<CodexThreadRollout> {
         if !self.db_path.exists() {
-            return json!({
+            return Ok(CodexThreadRollout::Unavailable(json!({
                 "status": "failed",
                 "session_id": session.session_id,
-                "message": format!("Database not found: {}", self.db_path.to_string_lossy()),
-                "history": []
-            });
+                "message": self.database_not_found_message(),
+            })));
         }
-        let result = (|| -> anyhow::Result<Value> {
-            let db = Connection::open(&self.db_path)?;
-            if schema_kind(&db)? != Some(SchemaKind::CodexThreads)
-                || !has_columns(&db, "threads", &["rollout_path"])?
-            {
-                return Ok(json!({
-                    "status": "failed",
-                    "session_id": session.session_id,
-                    "message": "Unsupported local storage schema",
-                    "history": []
-                }));
-            }
-            let thread_id = normalize_codex_thread_id(&session.session_id);
-            let rollout_path: Option<String> = db
-                .query_row(
-                    "SELECT rollout_path FROM threads WHERE id = ?1",
-                    [&thread_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let Some(rollout_path) = rollout_path.filter(|path| !path.trim().is_empty()) else {
-                return Ok(json!({
-                    "status": "failed",
-                    "session_id": thread_id,
-                    "message": "Thread rollout path is empty",
-                    "history": []
-                }));
-            };
-            let rollout = PathBuf::from(&rollout_path);
-            if !rollout.is_file() {
-                return Ok(json!({
-                    "status": "failed",
-                    "session_id": thread_id,
-                    "message": format!("rollout file not found: {rollout_path}"),
-                    "history": []
-                }));
-            }
-            let history = read_rollout_usage_history(&rollout, &thread_id)?;
-            Ok(json!({
-                "status": "ok",
+        let db = Connection::open(&self.db_path)?;
+        if schema_kind(&db)? != Some(SchemaKind::CodexThreads)
+            || !has_columns(&db, "threads", &["rollout_path"])?
+        {
+            return Ok(CodexThreadRollout::Unavailable(json!({
+                "status": "failed",
+                "session_id": session.session_id,
+                "message": "Unsupported local storage schema",
+            })));
+        }
+        let thread_id = normalize_codex_thread_id(&session.session_id);
+        let rollout_path: Option<String> = db
+            .query_row(
+                "SELECT rollout_path FROM threads WHERE id = ?1",
+                [&thread_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(rollout_path) = rollout_path.filter(|path| !path.trim().is_empty()) else {
+            return Ok(CodexThreadRollout::Unavailable(json!({
+                "status": "failed",
                 "session_id": thread_id,
-                "rollout_path": rollout_path,
-                "history": history,
-            }))
-        })();
-        result.unwrap_or_else(|err| {
-            json!({
+                "message": "Thread rollout path is empty",
+            })));
+        };
+        let rollout = PathBuf::from(&rollout_path);
+        if !rollout.is_file() {
+            return Ok(CodexThreadRollout::Unavailable(json!({
+                "status": "failed",
+                "session_id": thread_id,
+                "message": format!("rollout file not found: {rollout_path}"),
+            })));
+        }
+        Ok(CodexThreadRollout::Ready {
+            thread_id,
+            rollout_path,
+            rollout,
+        })
+    }
+
+    pub fn codex_thread_usage_history(&self, session: &SessionRef) -> serde_json::Value {
+        let with_history = |mut value: Value| {
+            if let Some(object) = value.as_object_mut() {
+                object.insert("history".to_string(), json!([]));
+            }
+            value
+        };
+        match self.codex_thread_rollout(session) {
+            Err(err) => with_history(json!({
                 "status": "failed",
                 "session_id": session.session_id,
                 "message": err.to_string(),
-                "history": []
-            })
-        })
+            })),
+            Ok(CodexThreadRollout::Unavailable(value)) => with_history(value),
+            Ok(CodexThreadRollout::Ready {
+                thread_id,
+                rollout_path,
+                rollout,
+            }) => match read_rollout_usage_history(&rollout, &thread_id) {
+                Ok(history) => json!({
+                    "status": "ok",
+                    "session_id": thread_id,
+                    "rollout_path": rollout_path,
+                    "history": history,
+                }),
+                Err(err) => with_history(json!({
+                    "status": "failed",
+                    "session_id": session.session_id,
+                    "message": err.to_string(),
+                })),
+            },
+        }
+    }
+
+    /// Codex 输入框下方状态栏用的轻量用量快照。
+    ///
+    /// 与 `codex_thread_usage_history` 的关键差别是**只读 rollout 尾部**：状态栏按
+    /// 秒级轮询，而真实会话的 rollout 可以到几百 MB，整读整解析会把 spawn_blocking
+    /// 线程拖住（同一个 adapter 还要服务删除、导出）。尾部窗口拿不到足够事件时按倍数
+    /// 放大，封顶后直接返回已有事件，不做全量兜底。
+    pub fn codex_thread_usage_live(&self, session: &SessionRef) -> serde_json::Value {
+        let with_events = |mut value: Value| {
+            if let Some(object) = value.as_object_mut() {
+                object.insert("events".to_string(), json!([]));
+            }
+            value
+        };
+        match self.codex_thread_rollout(session) {
+            Err(err) => with_events(json!({
+                "status": "failed",
+                "session_id": session.session_id,
+                "message": err.to_string(),
+            })),
+            Ok(CodexThreadRollout::Unavailable(value)) => with_events(value),
+            Ok(CodexThreadRollout::Ready {
+                thread_id,
+                rollout_path,
+                rollout,
+            }) => match read_rollout_usage_tail(&rollout, USAGE_TAIL_EVENT_LIMIT) {
+                Ok(events) => json!({
+                    "status": "ok",
+                    "session_id": thread_id,
+                    "rollout_path": rollout_path,
+                    "events": events,
+                }),
+                Err(err) => with_events(json!({
+                    "status": "failed",
+                    "session_id": session.session_id,
+                    "message": err.to_string(),
+                })),
+            },
+        }
+    }
+
+    /// 小鲸鱼只接受会话 UUID；路径来自只读数据库或受限会话目录，不接受前端路径。
+    pub(crate) fn whale_rollout_path(&self, thread_id: &str) -> Option<PathBuf> {
+        crate::whale_usage::normalize_session_id(thread_id)?;
+        let home = self
+            .codex_home
+            .as_deref()
+            .or_else(|| self.db_path.parent())?;
+        let roots: Vec<PathBuf> = ["sessions", "archived_sessions"]
+            .iter()
+            .filter_map(|name| fs::canonicalize(home.join(name)).ok())
+            .collect();
+        let allowed = |path: &Path| -> Option<PathBuf> {
+            let path = fs::canonicalize(path).ok()?;
+            (path.is_file()
+                && path.extension().is_some_and(|ext| ext == "jsonl")
+                && roots.iter().any(|root| path.starts_with(root)))
+            .then_some(path)
+        };
+        for db_path in &self.allowed_db_paths {
+            let Ok(db) = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+                continue;
+            };
+            let _ = db.busy_timeout(std::time::Duration::from_millis(50));
+            let path = db.query_row(
+                "SELECT rollout_path FROM threads WHERE id = ?1",
+                [thread_id],
+                |row| row.get::<_, Option<String>>(0),
+            );
+            if let Ok(Some(path)) = path {
+                if let Some(path) = allowed(Path::new(&path)) {
+                    return Some(path);
+                }
+                if let Some(alternative) = wsl_path_alternative(&path) {
+                    if let Some(path) = allowed(Path::new(&alternative)) {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+        // API 模式可能没有 threads 行。只遍历标准目录，限制深度及条目数，不跟随符号链接。
+        let suffix = format!("-{thread_id}.jsonl");
+        let mut pending: Vec<_> = roots.into_iter().rev().map(|root| (root, 0)).collect();
+        let mut budget = 8192usize;
+        while let Some((dir, depth)) = pending.pop() {
+            let Ok(entries) = fs::read_dir(dir) else {
+                continue;
+            };
+            for entry in entries {
+                if budget == 0 {
+                    return None;
+                }
+                budget -= 1;
+                let Ok(entry) = entry else { continue };
+                let Ok(kind) = entry.file_type() else { continue };
+                if kind.is_dir() && depth < 3 {
+                    pending.push((entry.path(), depth + 1));
+                } else if kind.is_file()
+                    && entry.file_name().to_string_lossy().ends_with(&suffix)
+                {
+                    return fs::canonicalize(entry.path()).ok();
+                }
+            }
+        }
+        None
     }
 
     fn delete_generic_session(
@@ -856,6 +1016,114 @@ fn read_rollout_usage_history(rollout_path: &Path, thread_id: &str) -> anyhow::R
     }
 
     Ok(history)
+}
+
+/// `SQLiteStorageAdapter::codex_thread_rollout` 的结果。
+enum CodexThreadRollout {
+    Ready {
+        thread_id: String,
+        rollout_path: String,
+        rollout: PathBuf,
+    },
+    /// 已经可以当作路由返回值的失败对象（本地没有这个会话的历史）。
+    Unavailable(Value),
+}
+
+/// 状态栏尾部读取的初始窗口。
+const USAGE_TAIL_INITIAL_BYTES: u64 = 512 * 1024;
+/// 窗口放大上限：单条工具输出动辄几百 KB，一条就能把整个窗口占满。
+const USAGE_TAIL_MAX_BYTES: u64 = 8 * 1024 * 1024;
+/// 返回给渲染侧的 token_count 事件条数上限，够算速度与最近一轮用量即可。
+const USAGE_TAIL_EVENT_LIMIT: usize = 24;
+
+/// 只读 rollout 尾部，取出最近的 `token_count` 事件。
+fn read_rollout_usage_tail(rollout: &Path, limit: usize) -> anyhow::Result<Vec<Value>> {
+    let file = File::open(rollout)?;
+    let len = file.metadata()?.len();
+    let mut window = USAGE_TAIL_INITIAL_BYTES;
+    loop {
+        let start = len.saturating_sub(window);
+        let mut events = Vec::new();
+        read_rollout_usage_window(&file, start, limit, &mut events)?;
+        // 至少两条事件渲染侧才算得出生成速度；不够就放大窗口重读一次。
+        // 到顶或已经从头开始读时不再尝试，避免退化成整文件解析。
+        if events.len() >= 2 || start == 0 || window >= USAGE_TAIL_MAX_BYTES {
+            return Ok(events);
+        }
+        window = (window * 4).min(USAGE_TAIL_MAX_BYTES);
+    }
+}
+
+fn read_rollout_usage_window(
+    file: &File,
+    start: u64,
+    limit: usize,
+    out: &mut Vec<Value>,
+) -> anyhow::Result<()> {
+    let mut handle = file.try_clone()?;
+    handle.seek(SeekFrom::Start(start))?;
+    let mut buffer = Vec::new();
+    handle.read_to_end(&mut buffer)?;
+    // 起始处多半落在行中间；UTF-8 的续字节不会等于 b'\n'，按字节切行不会切坏字符。
+    let text = String::from_utf8_lossy(&buffer);
+    let mut lines = text.split('\n');
+    if start > 0 {
+        lines.next();
+    }
+    for line in lines {
+        let line = line.trim();
+        // 先做子串预筛，避免为每条 response_item 付 serde 解析成本。
+        if line.is_empty() || !line.contains("\"token_count\"") {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if let Some(event) = rollout_usage_event(&value) {
+            out.push(event);
+        }
+    }
+    if out.len() > limit {
+        out.drain(..out.len() - limit);
+    }
+    Ok(())
+}
+
+fn rollout_usage_event(value: &Value) -> Option<Value> {
+    if value.get("type").and_then(Value::as_str) != Some("event_msg") {
+        return None;
+    }
+    let payload = value.get("payload")?;
+    if payload.get("type").and_then(Value::as_str) != Some("token_count") {
+        return None;
+    }
+    let info = payload.get("info")?;
+    let last = info.get("last_token_usage")?;
+    let total = info.get("total_token_usage");
+    let field = |source: Option<&Value>, key: &str| {
+        source
+            .and_then(|usage| usage.get(key))
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+    };
+    let input_tokens = field(Some(last), "input_tokens");
+    let output_tokens = field(Some(last), "output_tokens");
+    let total_tokens = field(Some(last), "total_tokens");
+    if input_tokens <= 0 && output_tokens <= 0 && total_tokens <= 0 {
+        return None;
+    }
+    Some(json!({
+        "t": value.get("timestamp").and_then(Value::as_str).unwrap_or_default(),
+        // 本次模型调用的用量：上下文占用取 total_tokens / context_window。
+        "input_tokens": input_tokens,
+        "cached_input_tokens": field(Some(last), "cached_input_tokens"),
+        "output_tokens": output_tokens,
+        "reasoning_output_tokens": field(Some(last), "reasoning_output_tokens"),
+        "total_tokens": total_tokens,
+        "context_window": field(Some(info), "model_context_window"),
+        // 本轮累计输出：换轮时它会回落，渲染侧靠这个切段算生成速度。
+        "turn_output_tokens": field(total, "output_tokens"),
+    }))
 }
 
 fn failed_with_undo(
@@ -1371,7 +1639,9 @@ fn rollout_file_backup_entry(path: &str, source_path: &str, bytes: Vec<u8>) -> V
 /// WSL 把 Windows 盘符挂载在 `/mnt/<盘符>` 下：同一文件在 WSL 侧写作
 /// `/mnt/c/Users/a.jsonl`，在 Windows 侧写作 `C:/Users/a.jsonl`（或反斜杠）。
 /// 只做字符串形式转换，不保证目标存在；路径不属于这两种形式时返回 None。
-fn wsl_path_alternative(path: &str) -> Option<String> {
+///
+/// `pub(crate)`：会话修复（provider_sync）也要按同一套视角回退，见 issue #1424。
+pub(crate) fn wsl_path_alternative(path: &str) -> Option<String> {
     let normalized = path.replace('\\', "/");
     if let Some(rest) = normalized.strip_prefix("/mnt/") {
         let rest_bytes = rest.as_bytes();
@@ -1424,6 +1694,75 @@ pub(crate) fn json_to_sql_value(value: &Value) -> SqlValue {
         }
         Value::String(value) => SqlValue::Text(value.clone()),
         other => SqlValue::Text(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod database_not_found_tests {
+    use super::*;
+
+    fn adapter(db_path: PathBuf, allowed: Vec<PathBuf>, home: Option<&Path>) -> SQLiteStorageAdapter {
+        let mut adapter = SQLiteStorageAdapter::new(db_path, BackupStore::new("/tmp/backups"))
+            .with_allowed_db_paths(allowed);
+        if let Some(home) = home {
+            adapter = adapter.with_codex_home(home);
+        }
+        adapter
+    }
+
+    /// issue #875：报错必须带上候选路径与 Codex home，否则用户无从判断是解析错还是库不在。
+    #[test]
+    fn message_lists_missing_path_and_candidate_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join(".codex");
+        let primary = home.join("state_5.sqlite");
+        let candidate = home.join("sqlite").join("state_5.sqlite");
+
+        let adapter = adapter(primary.clone(), vec![primary.clone(), candidate.clone()], Some(&home));
+        let message = adapter.database_not_found_message();
+
+        assert!(message.contains(&primary.to_string_lossy().to_string()));
+        assert!(message.contains("exists: false"));
+        assert!(
+            message.contains(&candidate.to_string_lossy().to_string()),
+            "候选路径应出现在报错里：{message}"
+        );
+        assert!(
+            message.contains(&home.to_string_lossy().to_string()),
+            "Codex home 应出现在报错里：{message}"
+        );
+    }
+
+    /// 候选路径里已经存在的那个要标 exists: true，用户才能看出真正该用哪条。
+    #[test]
+    fn message_marks_existing_candidate_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join(".codex");
+        fs::create_dir_all(&home).unwrap();
+        let primary = home.join("state_5.sqlite");
+        let existing = home.join("sqlite").join("state_5.sqlite");
+        fs::create_dir_all(existing.parent().unwrap()).unwrap();
+        fs::write(&existing, b"placeholder").unwrap();
+
+        let adapter = adapter(primary, vec![existing.clone()], None);
+        let message = adapter.database_not_found_message();
+
+        assert!(
+            message.contains(&format!("{} (exists: true)", existing.to_string_lossy())),
+            "已存在的候选路径应标为 true：{message}"
+        );
+    }
+
+    /// 没有 codex_home 时不该硬塞一行空的 home。
+    #[test]
+    fn message_omits_codex_home_when_unknown() {
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("state_5.sqlite");
+
+        let adapter = adapter(primary, vec![], None);
+        let message = adapter.database_not_found_message();
+
+        assert!(!message.contains("Codex home："), "不该出现空 home：{message}");
     }
 }
 

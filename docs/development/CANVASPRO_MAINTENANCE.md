@@ -1,6 +1,6 @@
 # CanvasPro Codex++ 后续开发与发布手册
 
-更新日期：2026-10-05。适用于 CanvasPro 定制客户端。历史事实见 [开发记录](CANVASPRO_HISTORY.md)，用户教程见 [CANVASPRO.md](../CANVASPRO.md)。
+更新日期：2026-10-15。适用于 CanvasPro 定制客户端。历史事实见 [开发记录](CANVASPRO_HISTORY.md)，用户教程见 [CANVASPRO.md](../CANVASPRO.md)。本次同步为 v1.9.0-canvaspro.1，最新操作变化见文末。
 
 ## 接手时确认基线
 
@@ -30,9 +30,9 @@ git show --no-patch 'v1.5.0-canvaspro.1^{commit}'
 
 ## 更新源与版本
 
-首发尚未完成定制版自动更新切换：`crates/codex-plus-core/src/update.rs` 的仓库和 `latest.json` 常量仍指向上游。下一版应优先修正并验证；定制仓库已有 `latest.json` 并不代表当前客户端已读取它。
+首发更新源仍指向上游；v1.9.0-canvaspro.1 已将 `crates/codex-plus-core/src/update.rs` 的仓库及 `latest.json` 常量切换为定制仓库。旧安装用户需要手动升级一次，新二进制才会使用新地址。
 
-当前版本比较只读数字前缀。若继续使用现有实现，下一版应增加数字版本，例如从 `1.5.0` 到 `1.5.1`；只变更 `canvaspro.1` → `canvaspro.2` 不会触发更新。此例不是已经创建的新版本。
+v1.9.0-canvaspro.1 的版本比较先比较数字版本，再比较 `canvaspro.N` 的数字修订；`canvaspro.2` 能从 `.1` 升级，`.10` 高于 `.2`，数字上游版本仍优先。原数字解析辅助函数保持旧后缀兼容。应用、标签和包名使用相同完整版本号。
 
 需要统一核对的版本位置：
 
@@ -107,3 +107,15 @@ gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --re
 切换旧安装包前备份用户设置，检查配置兼容，不通过清空 Key、登录状态或会话数据实现回退。服务端 New API 的回退独立于本客户端。
 
 每次迭代追加历史条目及公开安全的构建证据。记录结果、例外和未验收项目；不发布真实密钥、凭据内容或带授权参数的临时 URL。
+
+## v1.9.0 同步后的操作变化
+
+- 应用为单一 `codex-plus-plus` 二进制，旧 launcher crate 由统一应用内部使用；Windows 包不能再打入旧 `codex-plus-plus-manager.exe`。
+- Mac 使用 `scripts/installer/macos/build-universal.sh` 编译两种目标并 lipo 合并；可见主应用一个，隐藏 legacy shim 仅用于旧更新器。当前没有 Developer ID 凭据，发布为 ad-hoc，不执行或宣称 Apple 公证。
+- `release-assets.yml` 支持 `platform=all/windows/macos`、`draft`、`publish`。创建标签及草稿后手动派发 `draft=true,publish=true`，Windows / Mac 的清单、附件摘要和源码提交一致才由最终 job 公开。此前按两个独立 Mac DMG 判断缺失附件的流程已替换。
+- Windows 与 Mac 自动生成 `*-build-manifest.json` / `SHA256SUMS-*.txt`，Windows 同时提供源码 ZIP；来源为 `scripts/canvaspro-release-manifest.mjs`。`latest.json` 使用正式 tag URL，不采用草稿临时地址。
+- 图片 / 视频等其它服务的原生模型更新不在客户端同步范围。四款 GPT 文本预设在 2026-10-15 公开目录重新核对仍可见，列表仍是静态配置。
+- 新版 Rust 的 `model`、`baseUrl` 和 `apiKey` 是派生字段，持久化主要通过配置正文及认证文件；新增无 Key 默认供应商时须携带不含凭据的地址 / 型号模板，避免保存其它偏好后丢失地址。
+- 本地若使用 HTTP 代理，测试命令先设置 `$env:NO_PROXY='127.0.0.1,localhost,::1'`，避免假上游的回环请求被送到代理。不要用跳过代理测试来掩盖环境路由问题。
+- 交互检查必须包含“保存失败后立即重试”；React actions 的记忆依赖应包含切换状态，避免旧闭包永久拦截后续操作。
+- 记录中“首发”的两个 Mac job、Windows 人工清单和原版本升级限制属于历史；新版本的验证以对应标签与清单为准。

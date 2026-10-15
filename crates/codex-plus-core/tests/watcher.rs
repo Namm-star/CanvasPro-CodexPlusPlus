@@ -1,8 +1,10 @@
 use codex_plus_core::watcher::{
-    build_spawn_launcher_command, build_watcher_install_plan, cdp_listening, codex_process_ids,
-    disable_watcher_at, enable_watcher_at, filter_killable_launcher_processes,
-    macos_launcher_process_names, process_id_is_running, process_ids_still_running,
-    should_recover_stale_launcher, watcher_disabled_flag,
+    MACOS_WATCHER_LABEL, build_spawn_launcher_command, build_watcher_install_plan, cdp_listening,
+    codex_process_ids, disable_watcher_at, enable_watcher_at, filter_killable_launcher_processes,
+    macos_launcher_process_names, macos_launch_agent_installed_at, macos_launch_agent_path_at,
+    macos_launch_agent_plist, process_id_is_running, process_ids_still_running,
+    remove_macos_launch_agent_at, should_recover_stale_launcher, watcher_disabled_flag,
+    write_macos_launch_agent_at,
 };
 
 #[cfg(windows)]
@@ -50,26 +52,69 @@ fn watcher_enable_and_disable_toggle_flag() {
 }
 
 #[test]
-fn watcher_install_plan_registers_rust_launcher_at_logon() {
+fn macos_launch_agent_registers_the_gui_at_login() {
+    let home = tempfile::tempdir().unwrap();
+    let launcher = home
+        .path()
+        .join("Codex++.app/Contents/MacOS/CodexPlusPlus");
+    assert!(!macos_launch_agent_installed_at(home.path()));
+
+    let path = write_macos_launch_agent_at(home.path(), &launcher).unwrap();
+
+    assert_eq!(path, macos_launch_agent_path_at(home.path()));
+    assert_eq!(
+        path.file_name().unwrap().to_string_lossy(),
+        format!("{MACOS_WATCHER_LABEL}.plist")
+    );
+    assert!(
+        path.parent()
+            .unwrap()
+            .ends_with(std::path::Path::new("Library").join("LaunchAgents"))
+    );
+    assert!(macos_launch_agent_installed_at(home.path()));
+
+    let plist = std::fs::read_to_string(&path).unwrap();
+    assert!(plist.contains(&format!("<string>{MACOS_WATCHER_LABEL}</string>")));
+    assert!(plist.contains(&launcher.to_string_lossy().to_string()));
+    assert!(plist.contains("<string>--autostart</string>"));
+    assert!(plist.contains("<key>RunAtLoad</key>\n  <true/>"));
+
+    remove_macos_launch_agent_at(home.path()).unwrap();
+    assert!(!macos_launch_agent_installed_at(home.path()));
+    // 重复移除是幂等的：界面关掉开关时不会因为文件已不存在而报错。
+    remove_macos_launch_agent_at(home.path()).unwrap();
+}
+
+#[test]
+fn macos_launch_agent_plist_escapes_the_executable_path() {
+    let plist = macos_launch_agent_plist(std::path::Path::new(
+        "/Applications/A&B <x>.app/Contents/MacOS/CodexPlusPlus",
+    ));
+
+    assert!(plist.contains("/Applications/A&amp;B &lt;x&gt;.app/Contents/MacOS/CodexPlusPlus"));
+    assert!(!plist.contains("A&B <x>"));
+}
+
+#[test]
+fn watcher_install_plan_opens_the_gui_at_logon() {
     let plan = build_watcher_install_plan("C:/Tools/codex-plus-plus.exe".into(), 9333);
 
     assert_eq!(plan.run_value_name, "CodexPlusPlusWatcher");
     assert_eq!(
         plan.run_value,
-        "\"C:/Tools/codex-plus-plus.exe\" --debug-port 9333"
+        "\"C:/Tools/codex-plus-plus.exe\" --autostart"
     );
     assert_eq!(plan.shortcut_name, "CodexPlusPlusWatcher.lnk");
     assert_eq!(plan.shortcut_target, "C:/Tools/codex-plus-plus.exe");
-    assert_eq!(plan.shortcut_arguments, "--debug-port 9333");
+    assert_eq!(plan.shortcut_arguments, "--autostart");
 }
 
 #[test]
-fn spawn_launcher_command_points_to_silent_binary_only() {
+fn startup_command_opens_only_the_unified_gui() {
     let command = build_spawn_launcher_command("C:/Tools/codex-plus-plus.exe", 9444);
 
     assert_eq!(command[0], "C:/Tools/codex-plus-plus.exe");
-    assert!(command.contains(&"--debug-port".to_string()));
-    assert!(command.contains(&"9444".to_string()));
+    assert_eq!(command, ["C:/Tools/codex-plus-plus.exe", "--autostart"]);
     assert!(!command.iter().any(|part| part.contains("manager")));
 }
 

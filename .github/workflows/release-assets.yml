@@ -6,13 +6,26 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to build missing installers for
+        description: Existing CanvasPro release tag
         required: true
         type: string
-        default: v1.5.0-canvaspro.1
+      platform:
+        description: Platforms to build
+        type: choice
+        default: all
+        options: [all, windows, macos]
+      draft:
+        description: Keep installers in a draft until checks finish
+        type: boolean
+        default: true
+      publish:
+        description: Publish the verified draft when both installers are ready
+        type: boolean
+        default: false
 
 env:
   RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  NO_PROXY: 127.0.0.1,localhost,::1
 
 concurrency:
   group: canvaspro-release-${{ github.event.release.tag_name || inputs.tag }}
@@ -22,294 +35,224 @@ permissions:
   contents: write
 
 jobs:
-  asset-plan:
-    name: Preserve uploaded installers
-    runs-on: ubuntu-latest
-    outputs:
-      windows-needed: ${{ steps.assets.outputs.windows-needed }}
-      macos-needed: ${{ steps.assets.outputs.macos-needed }}
-    steps:
-      - name: Check release assets
-        id: assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          TAG: ${{ env.RELEASE_TAG }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
-            echo 'error: invalid release tag' >&2
-            exit 1
-          fi
-          gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.sha'
-          version="${TAG#v}"
-          version="${version#V}"
-          gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' > assets.txt
-          if grep -Fxq "CanvasPro-CodexPlusPlus-${version}-windows-x64-setup.exe" assets.txt; then
-            echo 'windows-needed=false' >> "$GITHUB_OUTPUT"
-          else
-            echo 'windows-needed=true' >> "$GITHUB_OUTPUT"
-          fi
-          if grep -Fxq "CanvasPro-CodexPlusPlus-${version}-macos-x64.dmg" assets.txt && grep -Fxq "CanvasPro-CodexPlusPlus-${version}-macos-arm64.dmg" assets.txt; then
-            echo 'macos-needed=false' >> "$GITHUB_OUTPUT"
-          else
-            echo 'macos-needed=true' >> "$GITHUB_OUTPUT"
-          fi
-
   windows-installer:
-    needs: asset-plan
-    if: needs.asset-plan.outputs.windows-needed == 'true'
+    if: github.event_name == 'release' || inputs.platform != 'macos'
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
-      - name: Checkout release tag
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "24"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
+          node-version: '24'
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install NSIS
-        run: choco install nsis -y
-
-      - name: Install frontend dependencies
-        working-directory: apps/codex-plus-manager
-        run: npm ci --no-audit --no-fund
-
-      - name: Build frontend
-        working-directory: apps/codex-plus-manager
-        run: npm run vite:build
-
-      - name: Build binaries
-        run: cargo build --release --locked
-
-      - name: Stage Windows app files
         shell: pwsh
         run: |
+          $makensis = $null
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install nsis -y --no-progress
+            # Chocolatey 可能在下载失败后返回成功，必须实际验证编译器。
+            $candidates = @(
+              "${env:ProgramFiles(x86)}\NSIS\makensis.exe",
+              "$env:ProgramFiles\NSIS\makensis.exe"
+            )
+            $makensis = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+            if (-not $makensis) {
+              $command = Get-Command makensis.exe -ErrorAction SilentlyContinue
+              if ($command) { $makensis = $command.Source }
+            }
+            if ($makensis) {
+              & $makensis /VERSION
+              if ($LASTEXITCODE -eq 0) { break }
+            }
+            $makensis = $null
+            if ($attempt -lt 3) { Start-Sleep -Seconds (10 * $attempt) }
+          }
+          if (-not $makensis) { throw "NSIS 安装失败或编译器不可用，停止发布构建。" }
+
+      - name: Frontend verification and build
+        working-directory: apps/codex-plus-manager
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run vite:build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build unified application
+        run: cargo build --release --locked
+      - name: Verify CanvasPro configuration and updater
+        run: cargo test -p codex-plus-core --release --locked --test canvaspro_defaults --test updater
+      - name: Stage Windows app and source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $version=$env:RELEASE_TAG.TrimStart('v')
           New-Item -ItemType Directory -Force dist/windows/app | Out-Null
           Copy-Item target/release/codex-plus-plus.exe dist/windows/app/
-          Copy-Item target/release/codex-plus-plus-manager.exe dist/windows/app/
-
-      - name: Build Windows zip asset
-        shell: pwsh
-        run: |
-          $version = "${{ env.RELEASE_TAG }}".TrimStart("v", "V")
-          New-Item -ItemType Directory -Force dist/windows | Out-Null
           Copy-Item LICENSE,THIRD_PARTY_NOTICES.md,ATTRIBUTION.md dist/windows/app/
           Copy-Item docs/CANVASPRO.md dist/windows/app/CanvasPro使用说明.md
-          Compress-Archive -Path dist/windows/app/* -DestinationPath "dist/windows/CanvasPro-CodexPlusPlus-$version-windows-x64.zip" -Force
+          New-Item -ItemType Directory -Force dist/windows/app/images | Out-Null
+          Copy-Item docs/images/canvaspro-support-group-20261004.png dist/windows/app/images/
+          if ((Get-ChildItem dist/windows/app -Filter *.exe).Count -ne 1) { throw 'Expected one unified application' }
+          Compress-Archive -Path dist/windows/app/* -DestinationPath "dist/windows/CanvasPro-CodexPlusPlus-$version-windows-x64.zip"
           git archive --format=zip --output="dist/windows/CanvasPro-CodexPlusPlus-$version-source.zip" HEAD
-
+          if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
       - name: Build Windows installer
         shell: pwsh
         run: |
-          $version = "${{ env.RELEASE_TAG }}".TrimStart("v", "V")
-          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
-          if (-not (Test-Path $makensis)) {
-            $makensis = "makensis"
+          $version = ($env:RELEASE_TAG).TrimStart("v", "V")
+          # NSIS 的 64 位安装目录与 Chocolatey PATH 更新均需要兼容。
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe",
+            "$env:ProgramFiles\NSIS\makensis.exe"
+          )
+          $makensis = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $makensis) {
+            $command = Get-Command makensis.exe -ErrorAction SilentlyContinue
+            if ($command) { $makensis = $command.Source }
+          }
+          if (-not $makensis) {
+            throw "NSIS 编译器未找到，检查 Chocolatey 安装结果。"
           }
           Push-Location scripts/installer/windows
-          & $makensis "/INPUTCHARSET" "UTF8" "/DVERSION=$version" CodexPlusPlus.nsi
-          Pop-Location
+          try {
+            & $makensis "/INPUTCHARSET" "UTF8" "/DVERSION=$version" CodexPlusPlus.nsi
+            if ($LASTEXITCODE -ne 0) { throw "NSIS 打包失败，退出码 $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
 
-      - name: Upload Windows installer
-        uses: softprops/action-gh-release@v2
+      - name: Record Windows provenance
+        run: node scripts/canvaspro-release-manifest.mjs dist/windows windows-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: canvaspro-windows-x64
+          path: |
+            dist/windows/*.exe
+            dist/windows/*.zip
+            dist/windows/*manifest.json
+            dist/windows/SHA256SUMS-*.txt
+          if-no-files-found: error
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
           files: |
             dist/windows/*.exe
             dist/windows/*.zip
+            dist/windows/*manifest.json
+            dist/windows/SHA256SUMS-*.txt
 
   macos-dmg:
-    name: macOS DMG (${{ matrix.arch }})
-    needs: asset-plan
-    if: needs.asset-plan.outputs.macos-needed == 'true'
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-          - arch: arm64
-            runner: macos-14
-            target: aarch64-apple-darwin
+    name: macOS universal DMG
+    if: github.event_name == 'release' || inputs.platform != 'windows'
+    runs-on: macos-14
+    timeout-minutes: 90
     steps:
-      - name: Checkout release tag
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "24"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+          node-version: '24'
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-
-      - name: Install frontend dependencies
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - name: Frontend build
         working-directory: apps/codex-plus-manager
-        run: npm ci --no-audit --no-fund
-
-      - name: Build frontend
-        working-directory: apps/codex-plus-manager
-        run: npm run vite:build
-
-      - name: Build binaries
-        run: cargo build --release --locked --target ${{ matrix.target }}
-
-      - name: Verify CanvasPro native configuration
-        run: cargo test -p codex-plus-core --test canvaspro_defaults --release --locked --target ${{ matrix.target }}
-
-      - name: Build macOS DMG
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+          npm run vite:build
+      - name: Build universal DMG with ad-hoc signing
         run: |
           VERSION="${RELEASE_TAG#v}"
-          VERSION="${VERSION#V}"
-          BINARY_DIR="$PWD/target/${{ matrix.target }}/release" bash scripts/installer/macos/package-dmg.sh "$VERSION" "${{ matrix.arch }}"
-
-      - name: Build macOS zip asset
-        shell: bash
-        run: |
-          VERSION="${RELEASE_TAG#v}"
-          VERSION="${VERSION#V}"
-          mkdir -p dist/macos/app-${{ matrix.arch }}
-          cp "target/${{ matrix.target }}/release/codex-plus-plus" "dist/macos/app-${{ matrix.arch }}/"
-          cp "target/${{ matrix.target }}/release/codex-plus-plus-manager" "dist/macos/app-${{ matrix.arch }}/"
-          cp LICENSE THIRD_PARTY_NOTICES.md ATTRIBUTION.md "dist/macos/app-${{ matrix.arch }}/"
-          cp docs/CANVASPRO.md "dist/macos/app-${{ matrix.arch }}/CanvasPro使用说明.md"
-          (cd dist/macos && zip -r "CanvasPro-CodexPlusPlus-${VERSION}-macos-${{ matrix.arch }}.zip" "app-${{ matrix.arch }}")
-
-      - name: Verify macOS bundle structure
+          bash scripts/installer/macos/build-universal.sh "$VERSION"
+      - name: Verify native configuration and updater
+        run: cargo test -p codex-plus-core --release --locked --target aarch64-apple-darwin --test canvaspro_defaults --test updater
+      - name: Verify universal bundles and disk image
         run: |
           set -euo pipefail
-          test -L "dist/macos/stage/Applications"
-          test "$(readlink "dist/macos/stage/Applications")" = "/Applications"
           for app in "dist/macos/stage/Codex++.app" "dist/macos/stage/Codex++ 管理工具.app"; do
-            test -f "$app/Contents/Info.plist"
-            test -f "$app/Contents/PkgInfo"
+            plutil -lint "$app/Contents/Info.plist"
             test -f "$app/Contents/Resources/LICENSE"
-            test -f "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
             test -f "$app/Contents/Resources/ATTRIBUTION.md"
-            test -x "$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
-            plutil -lint "$app/Contents/Info.plist" >/dev/null
-            codesign -dv "$app" >/dev/null 2>&1
+            test -f "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
+            executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+            lipo "$app/Contents/MacOS/$executable" -verify_arch x86_64 arm64
             codesign --verify --deep --strict "$app"
-            echo "verified: $app"
           done
-          architecture='${{ matrix.arch }}'
-          if [ "$architecture" = 'x64' ]; then architecture='x86_64'; fi
-          lipo "target/${{ matrix.target }}/release/codex-plus-plus" -verify_arch "$architecture"
-          lipo "target/${{ matrix.target }}/release/codex-plus-plus-manager" -verify_arch "$architecture"
+          test -L dist/macos/stage/Applications
           for dmg in dist/macos/*.dmg; do hdiutil verify "$dmg"; done
-
-      - name: Record macOS build checksums and provenance
-        env:
-          BUILD_ARCH: ${{ matrix.arch }}
-          BUILD_TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          export SOURCE_COMMIT="$(git rev-parse HEAD)"
-          export RUST_VERSION="$(rustc --version)"
-          export MACOS_VERSION="$(sw_vers -productVersion)"
-          node <<'NODE'
-          const fs = require('node:fs');
-          const crypto = require('node:crypto');
-          const arch = process.env.BUILD_ARCH;
-          const files = fs.readdirSync('dist/macos').filter(name => /\.(dmg|zip)$/.test(name)).sort();
-          const assets = files.map(name => {
-            const bytes = fs.readFileSync(`dist/macos/${name}`);
-            return { name, bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
-          });
-          const manifest = {
-            tag: process.env.RELEASE_TAG, sourceCommit: process.env.SOURCE_COMMIT,
-            architecture: arch, target: process.env.BUILD_TARGET,
-            rust: process.env.RUST_VERSION, macOS: process.env.MACOS_VERSION,
-            signing: 'ad-hoc', appleNotarized: false,
-            validation: { canvasProNativeConfigurationTests: 'passed', binaryArchitecture: 'passed', codeSignature: 'passed', dmgIntegrity: 'passed' },
-            assets
-          };
-          const manifestName = `macos-${arch}-build-manifest.json`;
-          const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + '\n');
-          fs.writeFileSync(`dist/macos/${manifestName}`, manifestBytes);
-          const sums = assets.map(asset => `${asset.sha256}  ${asset.name}`);
-          sums.push(`${crypto.createHash('sha256').update(manifestBytes).digest('hex')}  ${manifestName}`);
-          fs.writeFileSync(`dist/macos/SHA256SUMS-macos-${arch}.txt`, sums.join('\n') + '\n');
-          NODE
-
-      - name: Preserve verified macOS build artifacts
-        uses: actions/upload-artifact@v4
+          node scripts/canvaspro-release-manifest.mjs dist/macos macos-universal
+      - uses: actions/upload-artifact@v4
         with:
-          name: canvaspro-macos-${{ matrix.arch }}
+          name: canvaspro-macos-universal
           path: |
             dist/macos/*.dmg
-            dist/macos/*.zip
-            dist/macos/*build-manifest.json
+            dist/macos/*manifest.json
             dist/macos/SHA256SUMS-*.txt
           if-no-files-found: error
-
-      - name: Upload macOS DMG
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
           files: |
             dist/macos/*.dmg
-            dist/macos/*.zip
-            dist/macos/*build-manifest.json
+            dist/macos/*manifest.json
             dist/macos/SHA256SUMS-*.txt
 
   latest-json:
-    name: Upload static latest.json
-    if: always() && !cancelled() && needs.asset-plan.result == 'success' && (needs.windows-installer.result == 'success' || needs.windows-installer.result == 'skipped') && (needs.macos-dmg.result == 'success' || needs.macos-dmg.result == 'skipped')
+    name: Verify release provenance and publish metadata
+    needs: [windows-installer, macos-dmg]
+    if: always() && !cancelled() && (needs.windows-installer.result == 'success' || needs.windows-installer.result == 'skipped') && (needs.macos-dmg.result == 'success' || needs.macos-dmg.result == 'skipped')
     runs-on: ubuntu-latest
-    needs:
-      - asset-plan
-      - windows-installer
-      - macos-dmg
     steps:
-      - name: Generate latest.json
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - name: Verify installers and matching source commits
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG: ${{ env.RELEASE_TAG }}
-        shell: bash
         run: |
           set -euo pipefail
-          gh release view "$TAG" --repo "$REPO" --json assets,body,tagName,url > release.json
+          gh release view "$RELEASE_TAG" --repo "$REPO" --json assets,body,tagName > release.json
+          gh release download "$RELEASE_TAG" --repo "$REPO" --pattern '*-build-manifest.json'
           node <<'NODE'
-          const fs = require("fs");
-          const release = JSON.parse(fs.readFileSync("release.json", "utf8"));
+          const fs = require('node:fs');
+          const {execFileSync} = require('node:child_process');
+          const release = JSON.parse(fs.readFileSync('release.json', 'utf8'));
+          const version = release.tagName.replace(/^v/, '');
+          const prefix = `CanvasPro-CodexPlusPlus-${version}`;
+          const expected = [`${prefix}-windows-x64-setup.exe`, `${prefix}-windows-x64.zip`, `${prefix}-macos-universal.dmg`, `${prefix}-source.zip`, 'windows-x64-build-manifest.json', 'macos-universal-build-manifest.json', 'SHA256SUMS-windows-x64.txt', 'SHA256SUMS-macos-universal.txt'];
+          for (const name of expected) {
+            if (!release.assets.some(a => a.name === name && a.size > 0 && a.state === 'uploaded')) throw new Error(`Missing verified asset: ${name}`);
+          }
+          const sourceCommit = execFileSync('git', ['rev-parse','HEAD'], {encoding:'utf8'}).trim();
+          for (const platform of ['windows-x64','macos-universal']) {
+            const manifest = JSON.parse(fs.readFileSync(`${platform}-build-manifest.json`,'utf8'));
+            if (manifest.sourceCommit !== sourceCommit || manifest.tag !== release.tagName) throw new Error('Source provenance mismatch');
+            for (const asset of manifest.assets) {
+              const remote = release.assets.find(a => a.name === asset.name);
+              if (!remote || remote.size !== asset.bytes || remote.digest !== `sha256:${asset.sha256}`) throw new Error(`Asset digest mismatch: ${asset.name}`);
+            }
+          }
           const repo = process.env.REPO;
-          const tag = release.tagName || process.env.TAG;
-          const version = tag.replace(/^v/i, "");
-          const baseUrl = `https://github.com/${repo}/releases/download/${tag}`;
-          const assets = (release.assets || [])
-            .map((asset) => asset.name)
-            .filter((name) => name !== "latest.json")
-            .map((name) => ({ name, url: `${baseUrl}/${encodeURIComponent(name)}` }));
-          const payload = {
-            version: `v${version}`,
-            url: release.url || `https://github.com/${repo}/releases/tag/${tag}`,
-            body: release.body || "",
-            assets
-          };
-          fs.writeFileSync("latest.json", `${JSON.stringify(payload, null, 2)}\n`);
+          const tag = release.tagName;
+          const payload = {version:tag,url:`https://github.com/${repo}/releases/tag/${tag}`,body:release.body,assets:release.assets.filter(a=>a.name!=='latest.json').map(a=>({name:a.name,url:`https://github.com/${repo}/releases/download/${tag}/${encodeURIComponent(a.name)}`}))};
+          fs.writeFileSync('latest.json', JSON.stringify(payload,null,2)+'\n');
           NODE
-          cat latest.json
-
-      - name: Upload latest.json
+          TAG="$RELEASE_TAG"
+          gh release upload "$TAG" latest.json --clobber --repo "$REPO"
+      - name: Publish verified draft
+        if: github.event_name == 'workflow_dispatch' && inputs.draft && inputs.publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ env.RELEASE_TAG }}
           REPO: ${{ github.repository }}
-        shell: bash
-        run: gh release upload "$TAG" latest.json --clobber --repo "$REPO"
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest --verify-tag --repo "$REPO"
