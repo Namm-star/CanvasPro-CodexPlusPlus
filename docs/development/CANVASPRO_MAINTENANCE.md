@@ -80,7 +80,7 @@ Windows 先完成 Vite 前端和 Rust release 编译，再按现有 NSIS 脚本�
 
 ```powershell
 # 示例值，使用时替换为这次真实创建的版本标签。
-gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --ref main -f tag=v1.9.0-canvaspro.2 -f platform=all -f draft=true -f publish=true
+gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --ref main -f tag=v2.1.1-canvaspro.2 -f platform=all -f draft=true -f publish=true
 ```
 
 3. 记录工作流定义提交和实际 checkout 的源码提交。以 Windows、Mac universal 和最终 metadata job 的结果为准；保存具体 run URL。首发成功 run 为 `36994204976`，不是以后版本的测试证明。

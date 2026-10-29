@@ -82,7 +82,7 @@ CanvasPro 定制版的使用、API Key、余额和模型接入问题，请加入
 
 ## 本次同步
 
-本次更新版本为 **[v2.1.1-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.1.1-canvaspro.1)**，基于上游 v2.1.1，提供 Windows x64 安装包、Mac universal DMG、完整源码及校验清单。
+当前发布版本为 **[v2.1.1-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.1.1-canvaspro.1)**，基于上游 v2.1.1，提供 Windows x64 安装包、Mac universal DMG、完整源码及校验清单。
 
 - 同步新版 Codex 的模型目录、Responses 协议、工具调用与供应商配置修复。
 - 同步 v2.1.1 的网关与供应商池、旧版 Mac 黑屏和 Codex 26.10 兼容修复；总览首页保留 CanvasPro 填 Key 即用的入口。

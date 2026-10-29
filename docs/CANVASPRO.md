@@ -4,7 +4,7 @@
 
 原作者为 [BigPizzaV3](https://github.com/BigPizzaV3) 及上游贡献者，原项目为 [CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)。主体能力来自上游，本定制版仅调整 CanvasPro 接入和发布资料。保留 AGPL-3.0-only、原版权及第三方声明，详细说明见 [ATTRIBUTION.md](../ATTRIBUTION.md)。
 
-定制版仓库：[Namm-star/CanvasPro-CodexPlusPlus](https://github.com/Namm-star/CanvasPro-CodexPlusPlus)。[Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases) 提供定制版安装包与对应源码；新开发版本为 v2.1.1-canvaspro.1，Windows x64 与 Mac 通用包以实际公开附件为准。
+定制版仓库：[Namm-star/CanvasPro-CodexPlusPlus](https://github.com/Namm-star/CanvasPro-CodexPlusPlus)。[Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases) 提供定制版安装包与对应源码；当前公开版本为 v2.1.1-canvaspro.1，Windows x64 与 Mac 通用包以实际公开附件为准。
 
 开发与更新迭代见 [开发记录](development/CANVASPRO_HISTORY.md)、[维护手册](development/CANVASPRO_MAINTENANCE.md) 和 [首发源码 / 附件基线](development/releases/v1.5.0-canvaspro.1.provenance.json)。用户教程与已发布安装包内附带的历史说明可能存在文档修订差异。
 

@@ -82,7 +82,7 @@ When reporting a problem, include your operating system, package version, model,
 
 ## Upstream Sync
 
-This update **[v2.1.1-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.1.1-canvaspro.1)** integrates upstream v2.1.1, including model catalogs, Responses and tool-call fixes, provider configuration, aggregation, isolated Codex instances, and usage indicators. Windows x64 installers, a universal Mac DMG, complete source, and checksum manifests are available on its release page.
+The current release **[v2.1.1-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.1.1-canvaspro.1)** integrates upstream v2.1.1, including model catalogs, Responses and tool-call fixes, provider configuration, aggregation, isolated Codex instances, and usage indicators. Windows x64 installers, a universal Mac DMG, complete source, and checksum manifests are available on its release page.
 
 CanvasPro remains the default provider. The unified app saves the user's own key before launching Codex. Its updater now uses this edition's repository and recognizes CanvasPro revision numbers. To upgrade from the old edition, download this repository's installer first; the old binary still has its original update source.
 

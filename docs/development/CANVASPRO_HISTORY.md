@@ -194,3 +194,13 @@ Rust 初次完整检查发现两个上游测试假设问题：`work_view` 默认
 扩展集成回归又发现默认模板的供应商显示名会被新规范化器从 `custom` 改为 `CanvasPro New API`，首次保存偏好后引起无关配置正文变化。模板显示名改为本站供应商名，地址、协议和凭据规则保持。原版首次导入本机配置的用例显式使用原版官方登录初始数据；新增两项本站回归，验证导入系统默认配置时保留 CanvasPro 活跃项、已有密钥和本机文件。九项导入用例、七项 CanvasPro 用例、偏好保持和显示名迁移分别通过；完整回归据此重跑，不跳过失败用例。
 
 最终完整命令为 `cargo test --workspace --locked -- --test-threads=1`，设置测试进程 `NO_PROXY=127.0.0.1,localhost,::1`，共 17 组结果：3283 通过、26 上游忽略、0 失败、0 额外过滤。依赖清单与上次版本相比只有应用版本号变化；前端 1111 通过、1 上游跳过，生产构建与七项浏览器交互烟测通过。后续按固定标签构建 Windows / Mac universal 安装包，所有来源和附件摘要由本版发布基线与工作流核对。
+
+### v2.1.1-canvaspro.1 发布结论
+
+[v2.1.1-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.1.1-canvaspro.1) 已公开。源码标签指向 `4085adcbf2c3cf8151e47df569c5ccc60af2c4fc`，相同提交定义并执行了[发布工作流 40858907077](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/40858907077)。Windows、Mac universal、最终来源检查三个 job 全部成功。两个平台分别通过 7 项本站配置及 12 项更新器回归；Mac 检查两套应用的双架构、plist、严格 ad-hoc 签名和 DMG 完整性，未执行 Apple 公证。
+
+九份附件（Windows setup / ZIP、Mac universal DMG、源码 ZIP、两个构建清单、两个校验文件及 `latest.json`）全部下载，字节数和 SHA-256 与 GitHub digest、平台清单一致。源码 ZIP 通过 7-Zip 完整性检查；Windows setup 与 ZIP 内主程序、许可、说明及新二维码六份内容摘要一致，二维码与用户原图逐字节一致。固定源码、实际工具链、附件摘要和验证范围见[本版发布基线](releases/v2.1.1-canvaspro.1.provenance.json)。
+
+本地 release 编译和 NSIS 打包通过。用隔离状态、CODEX_HOME、WebView2 数据目录和独立端口启动本地原生程序，日志及可访问性文本均确认版本 `2.1.1-canvaspro.1`；图形截图采集超时，后续原生页面导航未完成，因此不把它描述为原生 Key / 启动端到端验收。结束验证时仅清理该次新建的测试进程，未运行安装器覆盖用户环境，未主动启动官方 Codex 或发出付费模型请求。
+
+两个历史 Release（1.9.0、1.5.0）的在线入群信息及各自 `latest.json` body 同步新微信图和有效期，固定安装包、源码和清单不变；独立记录见[2026-10-29 交流群更新](releases/2026-10-29-support-group-update.json)。发布后仅追加文档和证据，不移动新旧标签，也不因文档改动重打安装包。主项目的交接索引同步新基线，AI CanvasPro / New API 服务端与其它窗口工作树不在本次变更范围。

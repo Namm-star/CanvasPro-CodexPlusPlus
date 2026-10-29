@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "recordType": "release-provenance",
+  "recordedOn": "2026-10-29",
+  "timezone": "Asia/Shanghai",
+  "repository": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus",
+  "upstreamRepository": "https://github.com/BigPizzaV3/CodexPlusPlus",
+  "upstreamTag": "v2.1.1",
+  "upstreamCommit": "97278ddf11570a6cae7297379c1354a63dfeb13d",
+  "previousSourceCommit": "ab232b525c405d5f2ee9b6796885e607e23d279e",
+  "previousReleaseTag": "v1.9.0-canvaspro.1",
+  "releaseTag": "v2.1.1-canvaspro.1",
+  "applicationVersion": "2.1.1-canvaspro.1",
+  "releaseUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.1.1-canvaspro.1",
+  "sourceCommit": "4085adcbf2c3cf8151e47df569c5ccc60af2c4fc",
+  "published": true,
+  "prerelease": false,
+  "publishedAt": "2026-10-29T10:57:10Z",
+  "workflow": {
+    "runId": 40858907077,
+    "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/40858907077",
+    "commit": "4085adcbf2c3cf8151e47df569c5ccc60af2c4fc",
+    "conclusion": "success"
+  },
+  "defaultProvider": {
+    "baseUrl": "https://api.canvasproai.com/v1",
+    "protocol": "responses",
+    "mode": "pure-api",
+    "model": "gpt-6.1-sol",
+    "models": [
+      "gpt-6.1-sol",
+      "gpt-6-sol",
+      "gpt-6-astra",
+      "gpt-5.6-sol"
+    ],
+    "catalogVerifiedDate": "2026-10-29"
+  },
+  "supportGroup": {
+    "name": "画布&api服务群",
+    "platform": "WeChat",
+    "platformConfirmedByUser": true,
+    "image": "docs/images/canvaspro-support-group-20261029.png",
+    "bytes": 29362,
+    "sha256": "04abf25190dda8eedda8943d7059d424e372ae66064b6166f802da5d05101bb4",
+    "validBefore": "2026-11-05",
+    "userImageUnmodified": true
+  },
+  "localValidation": {
+    "frontend": {
+      "passed": 1111,
+      "failed": 0,
+      "skipped": 1
+    },
+    "typeScript": "passed",
+    "viteProductionBuild": "passed",
+    "rust": {
+      "ignored": 26,
+      "passed": 3283,
+      "filtered": 0,
+      "groups": 17,
+      "failed": 0,
+      "fullWorkspacePassed": true
+    },
+    "rustCommand": "cargo test --workspace --locked -- --test-threads=1",
+    "testEnvironment": {
+      "NO_PROXY": "127.0.0.1,localhost,::1"
+    },
+    "canvasProNativeTests": {
+      "passed": 7,
+      "failed": 0
+    },
+    "updaterTests": {
+      "passed": 12,
+      "failed": 0
+    },
+    "localImportTests": {
+      "passed": 9,
+      "failed": 0
+    },
+    "workflowActionlint": "passed",
+    "windowsInstaller": {
+      "extraction": "passed",
+      "installedOnUserMachine": false,
+      "nsisCompilation": "passed",
+      "executableDocumentationAndQrHashes": "matched"
+    },
+    "browserVerification": {
+      "passed": true,
+      "checks": [
+        "empty key",
+        "invalid header",
+        "save failure prevents launch",
+        "selected Responses model",
+        "save then launch",
+        "saved key reuse",
+        "no JavaScript errors"
+      ],
+      "realModelRequests": false,
+      "environment": "Actual production frontend, mocked Tauri IPC, installed Chrome, all non-loopback requests blocked; onboarding dismissed in fixture"
+    },
+    "nativeSmoke": {
+      "sourceCommit": "4085adcbf2c3cf8151e47df569c5ccc60af2c4fc",
+      "versionLogged": "2.1.1-canvaspro.1",
+      "processStarted": true,
+      "isolatedStateDir": true,
+      "isolatedCodexHome": true,
+      "isolatedWebview2UserData": true,
+      "isolatedDebugPort": 63361,
+      "isolatedHelperPort": 63362,
+      "nativeUiTextRead": true,
+      "nativeVersionVisible": true,
+      "nativeScreenshotVerified": false,
+      "limitation": "Graphics capture timed out; accessibility text read successfully. Later navigation could not use the window; native key/save/launch flow remains unverified.",
+      "officialCodexLaunchedByVerification": false,
+      "realPaidModelRequestsMade": false,
+      "stoppedByVerificationHarness": true
+    },
+    "downloadedAttachmentHashes": "all nine match GitHub digests and platform checksum files",
+    "sourceZipIntegrity": "7-Zip test passed",
+    "publishedWindowsPayload": "setup and ZIP payload/document hashes match",
+    "publicEndpoints": {
+      "unauthenticatedLatestVersion": "v2.1.1-canvaspro.1",
+      "releasePageHttpStatus": 200,
+      "latestNotesIncludeNewQr": true
+    }
+  },
+  "buildManifests": [
+    {
+      "tag": "v2.1.1-canvaspro.1",
+      "version": "2.1.1-canvaspro.1",
+      "platform": "windows-x64",
+      "repository": "Namm-star/CanvasPro-CodexPlusPlus",
+      "sourceCommit": "4085adcbf2c3cf8151e47df569c5ccc60af2c4fc",
+      "upstreamCommit": "97278ddf11570a6cae7297379c1354a63dfeb13d",
+      "node": "v24.22.1",
+      "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "validation": {
+        "canvasProConfiguration": "passed",
+        "updaterRegression": "passed",
+        "installerStructure": "passed"
+      },
+      "realPaidModelRequestsMade": false,
+      "assets": [
+        {
+          "name": "CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-source.zip",
+          "bytes": 48009120,
+          "sha256": "f466c402348859cd4aa692bab19fcfedfd5d9d195444d2a8ddd58ddbe81fdd7b"
+        },
+        {
+          "name": "CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-windows-x64-setup.exe",
+          "bytes": 20741857,
+          "sha256": "d20d6472dff4e594f4ab14e76f88cc054e224005f6831940610ab2d286b2c390"
+        },
+        {
+          "name": "CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-windows-x64.zip",
+          "bytes": 30957835,
+          "sha256": "2678d08c8afee207d29790a480a02d83c564d2628f283f584f234a16076cc7b8"
+        }
+      ]
+    },
+    {
+      "tag": "v2.1.1-canvaspro.1",
+      "version": "2.1.1-canvaspro.1",
+      "platform": "macos-universal",
+      "repository": "Namm-star/CanvasPro-CodexPlusPlus",
+      "sourceCommit": "4085adcbf2c3cf8151e47df569c5ccc60af2c4fc",
+      "upstreamCommit": "97278ddf11570a6cae7297379c1354a63dfeb13d",
+      "node": "v24.20.0",
+      "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "architectures": [
+        "x86_64",
+        "arm64"
+      ],
+      "signing": "ad-hoc",
+      "appleNotarized": false,
+      "validation": {
+        "canvasProConfiguration": "passed",
+        "updaterRegression": "passed",
+        "installerStructure": "passed"
+      },
+      "realPaidModelRequestsMade": false,
+      "assets": [
+        {
+          "name": "CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-macos-universal.dmg",
+          "bytes": 77660228,
+          "sha256": "026a2dab9e4f5b5e157b38c279d13488d9a9bcc7617d2eb7c5122bc78330fd4a"
+        }
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "name": "CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-macos-universal.dmg",
+      "bytes": 77660228,
+      "sha256": "026a2dab9e4f5b5e157b38c279d13488d9a9bcc7617d2eb7c5122bc78330fd4a",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.1.1-canvaspro.1/CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-macos-universal.dmg"
+    },
+    {
+      "name": "CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-source.zip",
+      "bytes": 48009120,
+      "sha256": "f466c402348859cd4aa692bab19fcfedfd5d9d195444d2a8ddd58ddbe81fdd7b",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.1.1-canvaspro.1/CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-source.zip"
+    },
+    {
+      "name": "CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-windows-x64-setup.exe",
+      "bytes": 20741857,
+      "sha256": "d20d6472dff4e594f4ab14e76f88cc054e224005f6831940610ab2d286b2c390",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.1.1-canvaspro.1/CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-windows-x64-setup.exe"
+    },
+    {
+      "name": "CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-windows-x64.zip",
+      "bytes": 30957835,
+      "sha256": "2678d08c8afee207d29790a480a02d83c564d2628f283f584f234a16076cc7b8",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.1.1-canvaspro.1/CanvasPro-CodexPlusPlus-2.1.1-canvaspro.1-windows-x64.zip"
+    },
+    {
+      "name": "latest.json",
+      "bytes": 6559,
+      "sha256": "358f3a4b89730599ba6ae6f50a7f7efb73756f9dddddf99d0aa44d897ca388d7",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.1.1-canvaspro.1/latest.json"
+    },
+    {
+      "name": "macos-universal-build-manifest.json",
+      "bytes": 842,
+      "sha256": "0feea1800598f3d09934b94301281db1ddb6d690cce78b229a955d147648f943",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.1.1-canvaspro.1/macos-universal-build-manifest.json"
+    },
+    {
+      "name": "SHA256SUMS-macos-universal.txt",
+      "bytes": 230,
+      "sha256": "d7f4d093479a5e076b842cbaa9f8ee9b0a5e859f960e1161a0aafa501768ea20",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.1.1-canvaspro.1/SHA256SUMS-macos-universal.txt"
+    },
+    {
+      "name": "SHA256SUMS-windows-x64.txt",
+      "bytes": 471,
+      "sha256": "2b796d9da0026141479cdf4bac4a388cc7bef874dc2b77a456bb648791edb375",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.1.1-canvaspro.1/SHA256SUMS-windows-x64.txt"
+    },
+    {
+      "name": "windows-x64-build-manifest.json",
+      "bytes": 1125,
+      "sha256": "af12053e96ac8a0e030a35ea230efcfd0bd9d5a8a346a4ee782af839cb09e656",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.1.1-canvaspro.1/windows-x64-build-manifest.json"
+    }
+  ],
+  "limitations": [
+    "Mac ad-hoc signing; no Apple notarization",
+    "Native macOS arm64 configuration/updater tests; Intel compiled and architecture checked, no Intel runtime acceptance",
+    "Official Codex installed separately; no real Key was supplied for verification and no paid model request was made",
+    "Model presets are static; gateway is optional and existing direct-switch protection remains"
+  ],
+  "metadataPolicy": "latest.json and Release text are mutable documentation. Future updates retain this original snapshot and record replacement digests separately."
+}

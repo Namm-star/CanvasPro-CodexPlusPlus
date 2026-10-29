@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "recordType": "support-documentation-update",
+  "recordedOn": "2026-10-29",
+  "timezone": "Asia/Shanghai",
+  "imageCommit": "4085adcbf2c3cf8151e47df569c5ccc60af2c4fc",
+  "groupName": "画布&api服务群",
+  "platform": "WeChat",
+  "platformConfirmedByUser": true,
+  "validBefore": "2026-11-05",
+  "image": {
+    "path": "docs/images/canvaspro-support-group-20261029.png",
+    "bytes": 29362,
+    "sha256": "04abf25190dda8eedda8943d7059d424e372ae66064b6166f802da5d05101bb4",
+    "userImageUnmodified": true,
+    "publicHttpStatus": 200
+  },
+  "historicalReleaseUpdates": [
+    {
+      "tag": "v1.9.0-canvaspro.1",
+      "releaseUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v1.9.0-canvaspro.1",
+      "releaseAndUpdaterBodyMatch": true,
+      "otherUpdaterFieldsUnchanged": true,
+      "unchangedFixedAssetCount": 8,
+      "metadata": {
+        "name": "latest.json",
+        "bytes": 6249,
+        "sha256": "2e8e224d87a81b6ba279b55343f6861ff7037ff15bbe1aaf8dc1475ef0ea597b"
+      }
+    },
+    {
+      "tag": "v1.5.0-canvaspro.1",
+      "releaseUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v1.5.0-canvaspro.1",
+      "releaseAndUpdaterBodyMatch": true,
+      "otherUpdaterFieldsUnchanged": true,
+      "unchangedFixedAssetCount": 12,
+      "metadata": {
+        "name": "latest.json",
+        "bytes": 7540,
+        "sha256": "ab8d25be295b4082b231631122006a4e3c17e60f5e73085f45762cffd4d619ff"
+      }
+    }
+  ],
+  "note": "Only historical Release text and mutable latest.json bodies were updated; old source tags, installers and build checksum manifests were retained."
+}
