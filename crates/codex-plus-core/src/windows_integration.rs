@@ -7,9 +7,6 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 #[cfg(windows)]
 use std::path::PathBuf;
 #[cfg(windows)]
-use std::sync::OnceLock;
-
-#[cfg(windows)]
 use anyhow::Context;
 #[cfg(windows)]
 use windows::Win32::Foundation::{
@@ -37,10 +34,8 @@ use windows::Win32::System::Threading::{
     WaitForSingleObject,
 };
 #[cfg(windows)]
-use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow};
-#[cfg(windows)]
 use windows::Win32::UI::Shell::{
-    ExtractIconExW, FOLDERID_Desktop, IShellLinkW, KF_FLAG_DEFAULT, SHGetKnownFolderPath,
+    FOLDERID_Desktop, IShellLinkW, KF_FLAG_DEFAULT, SHGetKnownFolderPath,
     ShellExecuteW, ShellLink,
 };
 #[cfg(windows)]
@@ -52,11 +47,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     ShowWindow, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 #[cfg(windows)]
-use windows::Win32::UI::WindowsAndMessaging::{
-    HICON, ICON_BIG, ICON_SMALL, PostMessageW, SendMessageW, WM_CLOSE, WM_SETICON,
-};
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
 #[cfg(windows)]
-use windows::core::{Interface, PCWSTR, PROPVARIANT, PWSTR};
+use windows::core::{Interface, PCWSTR, PWSTR};
 
 /// 请求归属 `process_id` 的可见主窗口关闭（`WM_CLOSE`）。
 ///
@@ -87,12 +80,7 @@ pub fn close_process_tree(process_id: u32, force: bool) -> bool {
         return request_process_close(process_id);
     }
     let output = std::process::Command::new("taskkill")
-        .args([
-            "/PID",
-            process_id.to_string().as_str(),
-            "/T",
-            "/F",
-        ])
+        .args(["/PID", process_id.to_string().as_str(), "/T", "/F"])
         .output();
     matches!(output, Ok(output) if output.status.success())
 }
@@ -223,10 +211,21 @@ pub fn open_url(url: &str) -> anyhow::Result<()> {
         )
     };
     let code = result.0 as isize;
-    if code <= 32 {
-        anyhow::bail!("ShellExecuteW returned {code}");
+    if code > 32 {
+        return Ok(());
     }
-    Ok(())
+    // ShellExecuteW 在目标 URL 没有默认浏览器关联、或默认处理程序失效时返回
+    // <=32（31 = SE_ERR_NOASSOC）。直接把这串数字抛给用户既看不懂也无法处理
+    // （#2101）。退回 explorer.exe 打开，它走独立的外壳解析路径，能覆盖
+    // 「默认浏览器已卸载/关联损坏」的常见场景。
+    match std::process::Command::new("explorer.exe").arg(url).spawn() {
+        Ok(_) => Ok(()),
+        Err(fallback_error) => {
+            anyhow::bail!(
+                "无法打开链接（ShellExecuteW={code}）：{fallback_error}。请在系统设置中为 http/https 选择默认浏览器后重试"
+            )
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -408,6 +407,11 @@ pub fn process_birth_id(process_id: u32) -> Option<u64> {
         return None;
     }
     let _guard = HandleGuard(handle);
+    process_birth_id_from_handle(handle)
+}
+
+#[cfg(windows)]
+fn process_birth_id_from_handle(handle: HANDLE) -> Option<u64> {
     let mut creation_time = FILETIME::default();
     let mut exit_time = FILETIME::default();
     let mut kernel_time = FILETIME::default();
@@ -448,6 +452,11 @@ pub fn process_command_line(process_id: u32) -> Option<String> {
         return None;
     }
     let _guard = HandleGuard(handle);
+    process_command_line_from_handle(handle)
+}
+
+#[cfg(windows)]
+fn process_command_line_from_handle(handle: HANDLE) -> Option<String> {
     let peb = query_peb_base_address(handle)?;
     // 先按 x64 / ARM64 布局读；32 位（WOW64）进程再退回 32 位布局重试一次。
     if let Some(command_line) = read_command_line_at(
@@ -467,6 +476,150 @@ pub fn process_command_line(process_id: u32) -> Option<String> {
         X86_COMMAND_LINE_OFFSET,
         true,
     )
+}
+
+#[cfg(windows)]
+pub(crate) fn child_process_birth_id(child: &std::process::Child) -> Option<u64> {
+    use std::os::windows::io::AsRawHandle;
+    // Child 保持句柄所有权；这里只借用，不交给 HandleGuard。
+    process_birth_id_from_handle(HANDLE(child.as_raw_handle()))
+}
+
+/// 校验与终止共用同一句柄，检查后即使 PID 被系统回收也不会转而终止新进程。
+#[cfg(windows)]
+pub(crate) fn terminate_verified_multi_worker(
+    process_id: u32,
+    options_path: &std::path::Path,
+    expected_birth: Option<u64>,
+) -> anyhow::Result<bool> {
+    use windows::Win32::Foundation::{HLOCAL, LocalFree};
+    use windows::Win32::UI::Shell::CommandLineToArgvW;
+    if process_id == std::process::id() || expected_birth.is_none() {
+        return Ok(false);
+    }
+    let Ok(handle) = (unsafe {
+        OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+            false,
+            process_id,
+        )
+    }) else {
+        return Ok(false);
+    };
+    if handle.is_invalid() {
+        return Ok(false);
+    }
+    let _guard = HandleGuard(handle);
+    let actual_birth = process_birth_id_from_handle(handle);
+    if actual_birth != expected_birth { return Ok(false); }
+    let Some(command_line) = process_command_line_from_handle(handle) else { return Ok(false); };
+    let wide = wide_null(&command_line);
+    let mut count = 0;
+    let argv = unsafe { CommandLineToArgvW(PCWSTR(wide.as_ptr()), &mut count) };
+    if argv.is_null() { return Ok(false); }
+    let arguments = if count == 3 {
+        unsafe { std::slice::from_raw_parts(argv, count as usize) }.iter()
+            .map(|value| unsafe { value.to_string() }.ok()).collect::<Option<Vec<_>>>()
+    } else { None };
+    // CommandLineToArgvW 分配的 argv 必须用 LocalFree 释放。
+    unsafe { LocalFree(HLOCAL(argv.cast())) };
+    let Some(arguments) = arguments else {
+        return Ok(false);
+    };
+    if !crate::multi_worker::worker_identity_matches(
+        expected_birth,
+        actual_birth,
+        &arguments,
+        options_path,
+    ) {
+        return Ok(false);
+    }
+    let Some(image) = process_image_path_from_handle(handle) else { return Ok(false); };
+    let Ok(expected_image) = std::env::current_exe().and_then(|path| path.canonicalize())
+        else { return Ok(false); };
+    if image.canonicalize().ok().as_ref() != Some(&expected_image) { return Ok(false); }
+    unsafe { TerminateProcess(handle, 0) }.context("结束已验证的多开 worker 失败")?;
+    Ok(true)
+}
+
+#[cfg(windows)]
+fn command_line_arguments(command_line: &str) -> Option<Vec<String>> {
+    use windows::Win32::Foundation::{HLOCAL, LocalFree};
+    use windows::Win32::UI::Shell::CommandLineToArgvW;
+    let wide = wide_null(command_line);
+    let mut count = 0;
+    let argv = unsafe { CommandLineToArgvW(PCWSTR(wide.as_ptr()), &mut count) };
+    if argv.is_null() {
+        return None;
+    }
+    let arguments = if (1..=32768).contains(&count) {
+        unsafe { std::slice::from_raw_parts(argv, count as usize) }
+            .iter()
+            .map(|value| unsafe { value.to_string() }.ok())
+            .collect()
+    } else {
+        None
+    };
+    unsafe { LocalFree(HLOCAL(argv.cast())) };
+    arguments
+}
+
+#[cfg(windows)]
+pub(crate) fn process_arguments(process_id: u32) -> Option<Vec<String>> {
+    command_line_arguments(&process_command_line(process_id)?)
+}
+
+/// 命令行、创建时间、映像与终止共用同一句柄，拒绝按端口或 PID 猜测归属。
+#[cfg(windows)]
+pub(crate) fn terminate_verified_codex_instance(
+    identity: &crate::multi_worker::CodexInstanceIdentity,
+) -> anyhow::Result<bool> {
+    if identity.process_id == std::process::id() || identity.process_birth_id == 0 {
+        return Ok(false);
+    }
+    let Ok(handle) = (unsafe {
+        OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+            false,
+            identity.process_id,
+        )
+    }) else {
+        return Ok(false);
+    };
+    if handle.is_invalid() {
+        return Ok(false);
+    }
+    let _guard = HandleGuard(handle);
+    if process_birth_id_from_handle(handle) != Some(identity.process_birth_id) {
+        return Ok(false);
+    }
+    let Some(image) = process_image_path_from_handle(handle) else {
+        return Ok(false);
+    };
+    let normalize = |path: &std::path::Path| {
+        path.to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .to_ascii_lowercase()
+    };
+    if normalize(&image) != normalize(&identity.executable) {
+        return Ok(false);
+    }
+    let Some(arguments) =
+        process_command_line_from_handle(handle).and_then(|line| command_line_arguments(&line))
+    else {
+        return Ok(false);
+    };
+    if !crate::multi_worker::codex_arguments_match(
+        &arguments,
+        &identity.user_data_dir,
+        identity.debug_port,
+    ) || unique_listener_process_id(&loopback_listener_process_ids(identity.debug_port)?)?
+        != Some(identity.process_id)
+    {
+        return Ok(false);
+    }
+    unsafe { TerminateProcess(handle, 0) }.context("结束已验证的多开 Codex 实例失败")?;
+    Ok(true)
 }
 
 /// `ProcessBasicInformation` / `ProcessWow64Information`。
@@ -991,21 +1144,11 @@ pub fn activate_process_window(process_id: u32) -> bool {
 }
 
 #[cfg(windows)]
-pub fn apply_codexplusplus_icon_to_process_window(
-    process_id: u32,
-    icon_resource_path: PathBuf,
-) -> bool {
+pub(crate) fn apply_codexplusplus_taskbar_to_process_window(process_id: u32) -> bool {
     let Some(hwnd) = visible_window_for_process(process_id) else {
         return false;
     };
-    let mut applied = false;
-    if apply_window_icons(hwnd, &icon_resource_path) {
-        applied = true;
-    }
-    if apply_taskbar_properties(hwnd, &icon_resource_path).is_ok() {
-        applied = true;
-    }
-    applied
+    crate::windows_taskbar::apply_to_window(hwnd).is_ok()
 }
 
 #[cfg(windows)]
@@ -1015,6 +1158,11 @@ fn query_process_image_path(process_id: u32) -> Option<PathBuf> {
         return None;
     }
     let _guard = HandleGuard(handle);
+    process_image_path_from_handle(handle)
+}
+
+#[cfg(windows)]
+fn process_image_path_from_handle(handle: HANDLE) -> Option<PathBuf> {
     let mut buffer = vec![0u16; MAX_PATH as usize * 4];
     let mut len = buffer.len() as u32;
     unsafe {
@@ -1128,112 +1276,6 @@ fn is_auxiliary_window_class(class_name: &str) -> bool {
         class_name.to_ascii_lowercase().as_str(),
         "ime" | "msctfime ui" | "tray_icon_app" | "tao thread event target"
     )
-}
-
-#[cfg(windows)]
-fn apply_window_icons(hwnd: HWND, icon_resource_path: &PathBuf) -> bool {
-    let Some((large_icon, small_icon)) = load_cached_icons(icon_resource_path) else {
-        return false;
-    };
-    unsafe {
-        SendMessageW(
-            hwnd,
-            WM_SETICON,
-            WPARAM(ICON_BIG as usize),
-            LPARAM(large_icon.0 as isize),
-        );
-        SendMessageW(
-            hwnd,
-            WM_SETICON,
-            WPARAM(ICON_SMALL as usize),
-            LPARAM(small_icon.0 as isize),
-        );
-    }
-    true
-}
-
-#[cfg(windows)]
-fn load_cached_icons(icon_resource_path: &PathBuf) -> Option<(HICON, HICON)> {
-    static ICONS: OnceLock<(usize, usize)> = OnceLock::new();
-    let icons = ICONS.get_or_init(|| {
-        let path = wide_null(icon_resource_path.as_os_str());
-        let mut large_icon = HICON::default();
-        let mut small_icon = HICON::default();
-        let loaded = unsafe {
-            ExtractIconExW(
-                PCWSTR(path.as_ptr()),
-                0,
-                Some(&mut large_icon),
-                Some(&mut small_icon),
-                1,
-            )
-        };
-        if loaded == 0 {
-            (0, 0)
-        } else {
-            (large_icon.0 as usize, small_icon.0 as usize)
-        }
-    });
-    if icons.0 == 0 || icons.1 == 0 {
-        None
-    } else {
-        Some((
-            HICON(icons.0 as *mut core::ffi::c_void),
-            HICON(icons.1 as *mut core::ffi::c_void),
-        ))
-    }
-}
-
-#[cfg(windows)]
-fn apply_taskbar_properties(hwnd: HWND, icon_resource_path: &PathBuf) -> anyhow::Result<()> {
-    use windows::Win32::Storage::EnhancedStorage::{
-        PKEY_AppUserModel_ID, PKEY_AppUserModel_RelaunchCommand,
-        PKEY_AppUserModel_RelaunchDisplayNameResource, PKEY_AppUserModel_RelaunchIconResource,
-    };
-
-    let store: IPropertyStore = unsafe { SHGetPropertyStoreForWindow(hwnd)? };
-    let icon_resource = format!("{},0", icon_resource_path.to_string_lossy());
-    let relaunch_command = std::env::current_exe()
-        .ok()
-        .map(|path| path.to_string_lossy().to_string())
-        .unwrap_or_else(|| "codex-plus-plus.exe".to_string());
-    set_property_string(
-        &store,
-        &PKEY_AppUserModel_ID,
-        "com.bigpizzav3.codexplusplus.codex",
-    )?;
-    set_property_string(
-        &store,
-        &PKEY_AppUserModel_RelaunchIconResource,
-        &icon_resource,
-    )?;
-    set_property_string(
-        &store,
-        &PKEY_AppUserModel_RelaunchDisplayNameResource,
-        "Codex++",
-    )?;
-    set_property_string(
-        &store,
-        &PKEY_AppUserModel_RelaunchCommand,
-        &relaunch_command,
-    )?;
-    unsafe {
-        store.Commit()?;
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn set_property_string(
-    store: &IPropertyStore,
-    key: &windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY,
-    value: &str,
-) -> anyhow::Result<()> {
-    let variant = PROPVARIANT::from(value);
-    unsafe {
-        store.SetValue(key, &variant)?;
-    }
-    Ok(())
 }
 
 #[cfg(windows)]

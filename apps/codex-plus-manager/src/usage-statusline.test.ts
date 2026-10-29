@@ -2,8 +2,8 @@
 //
 // cdp_bridge.rs 只守「接线还在不在」，这里把分片里的纯计算函数抠出来放进沙箱真跑，
 // 验证三件在真机上不好复现的事：
-//   1. 生成速度按「同一轮内相邻事件差」算，换轮（turn_output_tokens 回落）要切段，
-//      过短/过长的间隔不能当样本；
+//   1. 输出吞吐按「同一轮内相邻事件差」求和后相除（不能等权平均各区间速率，#2636），
+//      按真实 turn_id 换轮，过短/过长的间隔不能当样本；
 //   2. 缓存命中与上下文占用是 Codex 自己的口径（cached/input、total/context_window），
 //      窗口缺失时不能瞎算成 0%；
 //   3. 会话 id 只认 composer 上的实时标识，新会话草稿（client-new-thread）没有 rollout，
@@ -35,15 +35,19 @@ function declaration(name: string): string {
 const sandboxSource = [
   declaration("codexPlusUsageStaleMs"),
   declaration("codexPlusUsagePercent"),
+  declaration("codexPlusUsageLatestTurn"),
+  declaration("codexPlusUsageMaxIntervalSeconds"),
   declaration("codexPlusUsageRate"),
+  declaration("codexPlusUsageTurnCache"),
   declaration("codexPlusUsageSnapshot"),
   declaration("codexPlusUsageThreadId"),
-  "return { codexPlusUsagePercent, codexPlusUsageRate, codexPlusUsageSnapshot, codexPlusUsageThreadId };",
+  "return { codexPlusUsagePercent, codexPlusUsageRate, codexPlusUsageTurnCache, codexPlusUsageSnapshot, codexPlusUsageThreadId };",
 ].join("\n");
 
 type Sandbox = {
   codexPlusUsagePercent: (numerator: number, denominator: number) => number | null;
   codexPlusUsageRate: (events: Array<Record<string, unknown>>) => number | null;
+  codexPlusUsageTurnCache: (events: Array<Record<string, unknown>>) => number | null;
   codexPlusUsageSnapshot: (events: Array<Record<string, unknown>>) => {
     speed: number | null;
     cache: number | null;
@@ -69,6 +73,7 @@ function event(secondsFromStart: number, turnOutputTokens: number, extra: Record
   return {
     t: new Date(Date.UTC(2026, 5, 2, 5, 0, secondsFromStart)).toISOString(),
     turn_output_tokens: turnOutputTokens,
+    turn_id: "turn-1",
     input_tokens: 1000,
     cached_input_tokens: 0,
     output_tokens: 0,
@@ -78,18 +83,55 @@ function event(secondsFromStart: number, turnOutputTokens: number, extra: Record
   };
 }
 
-test("生成速度按同一轮内相邻事件差计算，换轮时切段", () => {
+test("输出吞吐按同一轮内相邻事件差计算，换轮时切段", () => {
   const { codexPlusUsageRate } = sandbox(Date.UTC(2026, 5, 2, 5, 1, 0));
   const events = [
     event(0, 100),
     event(10, 600),
     event(20, 1100),
-    // 新一轮：累计输出回落到 200，前一段不能跨轮相减。
-    event(30, 200),
-    event(40, 700),
+    // 累计输出跨轮仍然递增，只有 turn_id 能确认边界。
+    event(30, 2100, { turn_id: "turn-2" }),
+    event(40, 2600, { turn_id: "turn-2" }),
   ];
   assert.equal(codexPlusUsageRate(events), 500 / 10);
   assert.equal(codexPlusUsageRate([event(0, 100)]), null, "只有一条事件时算不出速度");
+});
+
+test("输出吞吐按总输出 ÷ 总时长加权，不对各区间速率等权平均（#2636 算例）", () => {
+  const { codexPlusUsageRate } = sandbox(Date.UTC(2026, 5, 2, 5, 1, 0));
+  // issue 里的三个区间：前两段含工具调用，最后一段是大段回答。
+  const at = (ms: number) => new Date(Date.UTC(2026, 5, 2, 5, 0, 0) + ms).toISOString();
+  const events = [
+    { ...event(0, 1000), t: at(0) },
+    { ...event(0, 1221), t: at(21_132) },
+    { ...event(0, 1528), t: at(21_132 + 21_752) },
+    { ...event(0, 2781), t: at(21_132 + 21_752 + 11_409) },
+  ];
+  const rate = codexPlusUsageRate(events);
+  assert.ok(rate !== null);
+  // 旧实现：(10.46 + 14.11 + 109.83) / 3 ≈ 44.8。小输出的工具步骤和大段回答同权，口径错误。
+  assert.notEqual(Math.round(rate * 10) / 10, 44.8);
+  // 新口径：(221 + 307 + 1253) / (21.132 + 21.752 + 11.409) = 1781 / 54.293 ≈ 32.80。
+  assert.equal(Number(rate.toFixed(2)), Number((1781 / 54.293).toFixed(2)));
+
+  // 长停顿区间分子分母一起剔除，不能只丢掉速率而把 token 留在分子里。
+  const withPause = [
+    ...events,
+    { ...event(0, 3781), t: at(21_132 + 21_752 + 11_409 + 200_000) },
+  ];
+  assert.equal(Number(codexPlusUsageRate(withPause)!.toFixed(2)), Number((1781 / 54.293).toFixed(2)));
+
+  // 重复记录 / 累计输出回落的区间不算样本，也不能把后面的增量算重。
+  const withDuplicate = [
+    { ...event(0, 1000), t: at(0) },
+    { ...event(0, 1221), t: at(21_132) },
+    { ...event(0, 1221), t: at(22_000) },
+    { ...event(0, 1528), t: at(21_132 + 21_752) },
+  ];
+  assert.equal(
+    Number(codexPlusUsageRate(withDuplicate)!.toFixed(4)),
+    Number(((221 + 307) / (21.132 + (21_132 + 21_752 - 22_000) / 1000)).toFixed(4)),
+  );
 });
 
 test("过短与过长的间隔都不作为速度样本", () => {
@@ -122,6 +164,42 @@ test("缓存命中与上下文占用按 Codex 的口径取值", () => {
   assert.equal(noWindow?.context, null);
 
   assert.equal(codexPlusUsageSnapshot([]), null);
+});
+
+test("同一轮缓存命中率按输入 token 加权，换轮后重新计算", () => {
+  const { codexPlusUsageTurnCache } = sandbox(Date.UTC(2026, 5, 2, 5, 0, 10));
+  assert.equal(codexPlusUsageTurnCache([
+    event(0, 100, { input_tokens: 100, cached_input_tokens: 40 }),
+    event(1, 200, { input_tokens: 900, cached_input_tokens: 810 }),
+  ]), 85);
+  assert.equal(codexPlusUsageTurnCache([
+    event(0, 100, { input_tokens: 100, cached_input_tokens: 40 }),
+    event(1, 200, { input_tokens: 1000, cached_input_tokens: 100, turn_id: "turn-2" }),
+  ]), 10);
+});
+
+test("会话累计输出持续增长时，第二轮 0% 不能混成 50%", () => {
+  const { codexPlusUsageTurnCache, codexPlusUsageRate } = sandbox(Date.UTC(2026, 5, 2, 5, 0, 10));
+  const events = [
+    event(0, 100, { cached_input_tokens: 1000 }),
+    event(1, 200, { turn_id: "turn-2" }),
+  ];
+  assert.equal(codexPlusUsageTurnCache(events), 0);
+  assert.equal(codexPlusUsageRate(events), null, "新一轮只有一次调用，不能跨轮估算速度");
+});
+
+test("缺少真实轮边界的旧记录只取最后一次调用", () => {
+  const { codexPlusUsageTurnCache, codexPlusUsageRate } = sandbox(Date.UTC(2026, 5, 2, 5, 0, 10));
+  const events = [
+    event(0, 100, { cached_input_tokens: 1000, turn_id: undefined }),
+    event(1, 200, { turn_id: undefined }),
+  ];
+  assert.equal(codexPlusUsageTurnCache(events), 0);
+  assert.equal(codexPlusUsageRate(events), null);
+  assert.equal(codexPlusUsageTurnCache([]), null);
+  assert.equal(codexPlusUsageTurnCache([
+    event(0, 100, { input_tokens: 0, cached_input_tokens: 100, turn_id: undefined }),
+  ]), null);
 });
 
 test("最近一条事件超过阈值后标记为过期", () => {
@@ -188,4 +266,89 @@ test("会话 id 只认 composer 上的实时标识，新会话草稿视为无会
   assert.equal(codexPlusUsageThreadId(card("__proto__")), "");
   assert.equal(codexPlusUsageThreadId(card("short")), "");
   assert.equal(codexPlusUsageThreadId(undefined), "");
+});
+
+function lifecycle() {
+  const node = { isConnected: true, previousElementSibling: null as unknown, dataset: {} as Record<string, string> };
+  let current = { id: "thread-a-123", card: {} };
+  const renders: any[] = [];
+  let resolveRequest: (value: unknown) => void = () => {};
+  let rejectRequest: (error: Error) => void = () => {};
+  const source = [
+    ...["codexPlusUsageState", "codexPlusUsageStaleMs", "codexPlusUsageIdleIntervalMs",
+      "codexPlusUsageActiveIntervalMs", "codexPlusUsageWarmupIntervalMs", "codexPlusUsageFailureLimit",
+      "codexPlusUsagePercent", "codexPlusUsageLatestTurn", "codexPlusUsageMaxIntervalSeconds", "codexPlusUsageRate", "codexPlusUsageTurnCache", "codexPlusUsageSnapshot",
+      "codexPlusUsageHide", "codexPlusUsageShow", "codexPlusUsageSyncPlacement",
+      "codexPlusUsageRemember", "codexPlusUsageRefresh", "codexPlusUsageTick"].map(declaration),
+    "return { state: codexPlusUsageState, sync: codexPlusUsageSyncPlacement, tick: codexPlusUsageTick, remember: codexPlusUsageRemember };",
+  ].join("\n");
+  const runtime = new Function("document", "codexPlusUsageEnabled", "codexPlusUsageComposerCard",
+    "codexPlusUsageThreadId", "codexPlusUsageEnsureNode", "codexPlusUsageRender",
+    "codexPlusUsageSchedule", "postJson", "sendCodexPlusDiagnostic", source)(
+    { hidden: false }, () => true, () => current.card, () => current.id,
+    (card: unknown) => { node.previousElementSibling = card; return node; },
+    (value: unknown) => renders.push(value), () => {},
+    () => new Promise((resolve, reject) => { resolveRequest = resolve; rejectRequest = reject; }), () => {},
+  );
+  runtime.state.node = node;
+  return {
+    ...runtime, node, renders,
+    switchTo(id: string) { current = { id, card: {} }; },
+    respond(events: unknown[]) { resolveRequest({ status: "ok", events }); },
+    fail() { rejectRequest(new Error("bridge unavailable")); },
+  };
+}
+
+test("数据请求完成前就显示栏位，切换会话立即恢复各自缓存", async () => {
+  const ui = lifecycle();
+  const pending = ui.tick();
+  assert.notEqual(ui.node.dataset.hidden, "true");
+  assert.equal(ui.renders.at(-1), null);
+  ui.respond([event(0, 100, { total_tokens: 27000 })]);
+  await pending;
+  assert.equal(ui.renders.at(-1).context, 27);
+  const original = ui.state.node;
+  ui.switchTo("thread-b-123");
+  ui.sync();
+  assert.equal(ui.renders.at(-1), null, "不能沿用其他会话的数字");
+  ui.switchTo("thread-a-123");
+  ui.sync();
+  assert.equal(ui.renders.at(-1).context, 27);
+  assert.equal(ui.state.node, original, "会话切换复用同一栏位");
+});
+
+test("旧请求返回不能覆盖当前会话，也不能在新建或设置页面重新显示", async () => {
+  const ui = lifecycle();
+  const pending = ui.tick();
+  ui.switchTo("thread-b-123");
+  ui.sync();
+  ui.respond([event(0, 100, { total_tokens: 27000 })]);
+  await pending;
+  assert.equal(ui.renders.at(-1), null);
+  assert.equal(ui.state.threadId, "thread-b-123");
+  const other = ui.tick();
+  ui.switchTo("");
+  ui.sync();
+  ui.respond([event(0, 100)]);
+  await other;
+  assert.equal(ui.node.dataset.hidden, "true");
+  assert.equal(ui.state.threadId, "");
+});
+
+test("空数据及连续失败仍保留已有会话栏位，缓存有界", async () => {
+  const ui = lifecycle();
+  const pending = ui.tick();
+  ui.respond([]);
+  await pending;
+  assert.notEqual(ui.node.dataset.hidden, "true");
+  for (let i = 0; i < 5; i++) {
+    const failed = ui.tick();
+    ui.fail();
+    await failed;
+  }
+  assert.equal(ui.state.failures, 5);
+  assert.notEqual(ui.node.dataset.hidden, "true", "桥接不可用仍保留栏位");
+  for (let i = 0; i < 40; i++) ui.remember(`thread-${i}`, [event(0, i)]);
+  assert.equal(ui.state.cache.size, 32);
+  assert.equal(ui.state.cache.has("thread-0"), false);
 });

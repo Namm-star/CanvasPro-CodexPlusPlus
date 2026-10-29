@@ -86,7 +86,10 @@ jobs:
       - name: Build unified application
         run: cargo build --release --locked
       - name: Verify CanvasPro configuration and updater
-        run: cargo test -p codex-plus-core --release --locked --test canvaspro_defaults --test updater
+        run: |
+          cargo test -p codex-plus-core --release --locked --test all canvaspro_defaults::
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test -p codex-plus-core --release --locked --test all updater::
       - name: Stage Windows app and source
         shell: pwsh
         run: |
@@ -97,7 +100,7 @@ jobs:
           Copy-Item LICENSE,THIRD_PARTY_NOTICES.md,ATTRIBUTION.md dist/windows/app/
           Copy-Item docs/CANVASPRO.md dist/windows/app/CanvasPro使用说明.md
           New-Item -ItemType Directory -Force dist/windows/app/images | Out-Null
-          Copy-Item docs/images/canvaspro-support-group-20261015.png dist/windows/app/images/
+          Copy-Item docs/images/canvaspro-support-group-20261029.png dist/windows/app/images/
           if ((Get-ChildItem dist/windows/app -Filter *.exe).Count -ne 1) { throw 'Expected one unified application' }
           Compress-Archive -Path dist/windows/app/* -DestinationPath "dist/windows/CanvasPro-CodexPlusPlus-$version-windows-x64.zip"
           git archive --format=zip --output="dist/windows/CanvasPro-CodexPlusPlus-$version-source.zip" HEAD
@@ -174,7 +177,9 @@ jobs:
           VERSION="${RELEASE_TAG#v}"
           bash scripts/installer/macos/build-universal.sh "$VERSION"
       - name: Verify native configuration and updater
-        run: cargo test -p codex-plus-core --release --locked --target aarch64-apple-darwin --test canvaspro_defaults --test updater
+        run: |
+          cargo test -p codex-plus-core --release --locked --target aarch64-apple-darwin --test all canvaspro_defaults::
+          cargo test -p codex-plus-core --release --locked --target aarch64-apple-darwin --test all updater::
       - name: Verify universal bundles and disk image
         run: |
           set -euo pipefail

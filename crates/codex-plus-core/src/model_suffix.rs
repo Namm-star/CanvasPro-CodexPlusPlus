@@ -20,6 +20,29 @@ pub struct ModelCatalogEntry {
     pub auto_compact_percent: Option<u32>,
 }
 
+/// 剥掉合法窗口后缀，保留模型 ID 的大小写。
+pub(crate) fn normalize_model_key(raw: &str) -> String {
+    parse_model_suffix(raw).0
+}
+
+/// 优先精确匹配，再剥后缀，最后按大小写不敏感匹配历史键。
+/// BTreeMap 保证同名大小写变体的回退结果稳定。
+pub(crate) fn lookup_model_map<'a, T>(
+    map: &'a std::collections::BTreeMap<String, T>,
+    model: &str,
+) -> Option<&'a T> {
+    if let Some(value) = map.get(model) {
+        return Some(value);
+    }
+    let slug = normalize_model_key(model);
+    if let Some(value) = map.get(&slug) {
+        return Some(value);
+    }
+    map.iter()
+        .find(|(key, _)| normalize_model_key(key).eq_ignore_ascii_case(&slug))
+        .map(|(_, value)| value)
+}
+
 /// 解析单个模型条目的后缀，返回 (slug, 可选窗口)。
 /// 括号内非合法窗口 token 时，整串作为 slug 且 window=None（不剥离括号）。
 pub fn parse_model_suffix(raw: &str) -> (String, Option<u64>) {
@@ -117,6 +140,8 @@ pub fn collect_catalog_entries(
     current_model: &str,
 ) -> Vec<ModelCatalogEntry> {
     // 先解析 model_list，保留顺序并去重；后缀已从 model_list 剥离，窗口来自 model_windows map。
+    let windows = model_windows.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+    let auto_compacts = model_auto_compact.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
     let mut seen = HashSet::new();
     let mut list_entries: Vec<ModelCatalogEntry> = Vec::new();
     for raw in model_list
@@ -132,12 +157,10 @@ pub fn collect_catalog_entries(
             continue;
         }
         let suffix_window = suffix_window.or_else(|| {
-            model_windows
-                .get(&slug)
+            lookup_model_map(&windows, &slug)
                 .and_then(|token| parse_window_token(token))
         });
-        let auto_compact_percent = model_auto_compact
-            .get(&slug)
+        let auto_compact_percent = lookup_model_map(&auto_compacts, &slug)
             .and_then(|token| parse_compact_percent(token));
         list_entries.push(ModelCatalogEntry {
             display_name: slug.clone(),
@@ -154,12 +177,10 @@ pub fn collect_catalog_entries(
         let (slug, suffix_window) = parse_model_suffix(current_model);
         if !slug.is_empty() {
             let suffix_window = suffix_window.or_else(|| {
-                model_windows
-                    .get(&slug)
+                lookup_model_map(&windows, &slug)
                     .and_then(|token| parse_window_token(token))
             });
-            let auto_compact_percent = model_auto_compact
-                .get(&slug)
+            let auto_compact_percent = lookup_model_map(&auto_compacts, &slug)
                 .and_then(|token| parse_compact_percent(token));
             entries.push(ModelCatalogEntry {
                 display_name: slug.clone(),
@@ -408,6 +429,20 @@ pub fn model_ui_metadata_with_override(slug: &str, user_override: Option<&Value>
     if metadata.get("codex_plus_default").and_then(Value::as_bool) == Some(true) {
         ui["codex_plus_default"] = json!(true);
     }
+    // 网关写的收藏标记：选择器里在这一行后面画星标。同样只有显式 true 才转发。
+    if metadata.get("codex_plus_favorite").and_then(Value::as_bool) == Some(true) {
+        ui["codex_plus_favorite"] = json!(true);
+    }
+    // 注入侧与原生目录使用同一份窗口信息。
+    for (source, camel, snake) in [
+        ("context_window", "contextWindow", "context_window"),
+        ("max_context_window", "maxContextWindow", "max_context_window"),
+    ] {
+        if let Some(window) = metadata.get(source) {
+            ui[camel] = window.clone();
+            ui[snake] = window.clone();
+        }
+    }
     if !has_builtin {
         // 单独声明 Fast 不能替原生描述符制造名称、描述或推理默认档。
         for (ui_field, source_field) in [
@@ -625,7 +660,7 @@ pub fn build_model_catalog_json(
     entries: &[ModelCatalogEntry],
     fallback_window: Option<u64>,
 ) -> String {
-    build_model_catalog_json_with_capabilities(entries, fallback_window, None, None, false)
+    build_model_catalog_json_with_capabilities(entries, fallback_window, None, None, false, None)
 }
 
 /// 使用指定模板（或内置 bundled 模板）构建 catalog。
@@ -635,18 +670,24 @@ pub fn build_model_catalog_json_with_template(
     fallback_window: Option<u64>,
     template: Option<&Value>,
 ) -> String {
-    build_model_catalog_json_with_capabilities(entries, fallback_window, template, None, false)
+    build_model_catalog_json_with_capabilities(entries, fallback_window, template, None, false, None)
 }
 
 /// 使用显式 provider capability 构建 catalog。
 /// `use_responses_lite_override` 仅由明确知道 provider wire capability 的调用方传入；
 /// 通用 builder 默认保留模板中的原始 Lite 行为。
+/// `provider_multi_agent`（#2683）：供应商级 Multi-Agent 协议显式选择（"v1"/"v2"）。
+/// 优先于 Lite 场景的自动 v2 与内置模板的每模型默认（gpt-5.6-sol→v2 等）——
+/// 供应商的链路形状（能否承载 v2 加密载荷）对它名下所有模型一致成立；每模型
+/// 用户元数据（modelMetadata 的 multi_agent_version）在后续
+/// `apply_model_metadata_overrides` 里覆盖，保持「模型级 > 供应商级 > Auto」。
 pub(crate) fn build_model_catalog_json_with_capabilities(
     entries: &[ModelCatalogEntry],
     fallback_window: Option<u64>,
     template: Option<&Value>,
     use_responses_lite_override: Option<bool>,
     deepseek_metadata: bool,
+    provider_multi_agent: Option<&str>,
 ) -> String {
     let models: Vec<Value> = entries
         .iter()
@@ -676,6 +717,10 @@ pub(crate) fn build_model_catalog_json_with_capabilities(
                 .or(fallback_window)
                 .unwrap_or_else(|| metadata_max_window.unwrap_or(context_window));
             model["slug"] = json!(entry.slug);
+            // 借用模板不能证明自定义模型支持并行工具调用；精确元数据才有此权威。
+            if !has_model_metadata || !model.get("supports_parallel_tool_calls").is_some_and(Value::is_boolean) {
+                model["supports_parallel_tool_calls"] = json!(false);
+            }
             if !has_model_metadata {
                 model["display_name"] = json!(entry.display_name);
                 model["description"] = json!(entry.display_name);
@@ -695,10 +740,15 @@ pub(crate) fn build_model_catalog_json_with_capabilities(
                 model["auto_compact_token_limit"] = Value::Null;
             }
             model["priority"] = json!(1000 + index);
-            model["visibility"] = json!("list");
+            model["visibility"] =
+                json!(crate::aggregate_catalog::catalog_visibility(&entry.slug));
             // Custom Responses relay catalogs must advertise the v2 multi-agent
             // contract so Codex exposes the sub-agent tools.
-            if use_responses_lite_override.is_some() {
+            // 供应商级显式选择（#2683）优先：链路能否承载 v2 加密载荷对整家供应商
+            // 一致成立，因此同时压过 Lite 场景的自动 v2 与内置模板的每模型默认。
+            if let Some(version) = provider_multi_agent {
+                model["multi_agent_version"] = json!(version);
+            } else if use_responses_lite_override.is_some() {
                 model["multi_agent_version"] = json!("v2");
             }
             if !deepseek_metadata {

@@ -436,7 +436,9 @@ export function metadataSourceTags(options: {
 export type ModelRowSyncPatch = { window?: string; autoCompact?: string };
 
 /// 导入文档解析结果 → 模型行补丁（JSON→行 的实时写回规则）：
-/// - 窗口：解析出有效值且与行现值不同才写（相同不写，避免多余 state 更新）
+/// - 窗口：**只补空列**。手工填过的窗口是显式覆盖层，导入文档不能把它换掉
+///   （曾出现「配好 1M 的模型，粘贴供应商 models.json 后被上游 256K 覆盖」）；
+///   想用文档的值就先把行内窗口清空。
 /// - 压缩比：解析出显示值且与行现值不同才写；null（JSON 未声明）不动行，
 ///   避免粘贴别的模型 JSON 时清掉用户行里的值
 export function importDocumentSyncPatch(
@@ -444,7 +446,7 @@ export function importDocumentSyncPatch(
   preview: { contextWindow: string | null; autoCompactPercent: string | null },
 ): ModelRowSyncPatch {
   const patch: ModelRowSyncPatch = {};
-  if (preview.contextWindow && preview.contextWindow !== row.window) {
+  if (preview.contextWindow && !row.window.trim()) {
     patch.window = preview.contextWindow;
   }
   if (preview.autoCompactPercent && preview.autoCompactPercent !== row.autoCompact) {
@@ -738,6 +740,55 @@ export function synchronizeModelMetadataFastSupport(
   return parsed.ok ? { document, preview: parsed.value } : null;
 }
 
+/** 只改目标模型的 Lite 声明，保留同一导入文档的其它模型与未知字段。 */
+export function synchronizeModelMetadataLiteSupport(
+  source: string, targetSlug: string, mode: "inherit" | "supported" | "unsupported",
+): { document: string; preview: ImportedModelMetadata } | null {
+  let root: unknown;
+  try {
+    root = source.trim() ? JSON.parse(unwrapJsonCompatibleDocument(source))
+      : { models: [{ slug: modelSlugFromRowName(targetSlug) }] };
+  } catch { return null; }
+  const matches = documentCandidates(root)?.filter((entry) => slugMatchesIgnoreCase(entry.slug, targetSlug));
+  if (!matches || matches.length !== 1) return null;
+  if (mode === "inherit") delete matches[0].use_responses_lite;
+  else matches[0].use_responses_lite = mode === "supported";
+  const document = JSON.stringify(root, null, 2);
+  const parsed = parseModelMetadataDocument(document, targetSlug);
+  return parsed.ok ? { document, preview: parsed.value } : null;
+}
+
+export type ModelMultiAgentMode = "inherit" | "v1" | "v2" | "disabled";
+
+/** 每模型 multi_agent_version 声明：inherit=未写（跟随供应商级/Auto），其余为显式值。 */
+export function modelMultiAgentMode(metadata: ModelMetadata | null | undefined): ModelMultiAgentMode {
+  const value = metadata?.multi_agent_version;
+  return value === "v1" || value === "v2" || value === "disabled" ? value : "inherit";
+}
+
+/**
+ * 只改目标模型的 multi_agent_version 声明（#2683）。inherit 时从文档删除该键——
+ * 上游 schema 的枚举只有 disabled/v1/v2，不存在 "auto" 字面值，「不写」才是 Auto。
+ * 保存路径走 modelMetadata map（catalog 生成时 apply_model_metadata_overrides 应用，
+ * 该函数的排除清单不含本键），因此随供应商切换/重写持久保留。
+ */
+export function synchronizeModelMetadataMultiAgentVersion(
+  source: string, targetSlug: string, mode: ModelMultiAgentMode,
+): { document: string; preview: ImportedModelMetadata } | null {
+  let root: unknown;
+  try {
+    root = source.trim() ? JSON.parse(unwrapJsonCompatibleDocument(source))
+      : { models: [{ slug: modelSlugFromRowName(targetSlug) }] };
+  } catch { return null; }
+  const matches = documentCandidates(root)?.filter((entry) => slugMatchesIgnoreCase(entry.slug, targetSlug));
+  if (!matches || matches.length !== 1) return null;
+  if (mode === "inherit") delete matches[0].multi_agent_version;
+  else matches[0].multi_agent_version = mode;
+  const document = JSON.stringify(root, null, 2);
+  const parsed = parseModelMetadataDocument(document, targetSlug);
+  return parsed.ok ? { document, preview: parsed.value } : null;
+}
+
 // 强制管理字段顺序，避免保存后 context_window 跑到压缩字段之后。
 function reorderManagedModelFields(model: ModelMetadata): void {
   const ordered: ModelMetadata = {};
@@ -849,6 +900,12 @@ function positiveIntegerString(value: unknown): string | null {
 }
 
 export function validateModelCapabilities(metadata: ModelMetadata): string | null {
+  if (Object.hasOwn(metadata, "base_instructions") && typeof metadata.base_instructions !== "string") {
+    return "base_instructions 必须是字符串（允许空字符串）。";
+  }
+  if (Object.hasOwn(metadata, "supports_parallel_tool_calls") && typeof metadata.supports_parallel_tool_calls !== "boolean") {
+    return "supports_parallel_tool_calls 必须是 true 或 false。";
+  }
   if (Object.hasOwn(metadata, "supported_reasoning_levels")) {
     if (!Array.isArray(metadata.supported_reasoning_levels)) {
       return "supported_reasoning_levels 必须是数组。";
@@ -858,6 +915,12 @@ export function validateModelCapabilities(metadata: ModelMetadata): string | nul
         return "supported_reasoning_levels 的每一项都必须包含 effort 和 description 字符串。";
       }
     }
+  }
+  // 上游 MultiAgentVersion 枚举（openai/codex protocol.rs）只有 disabled/v1/v2；
+  // 不存在 "auto" 字面值——Auto 的表达是不写该键。
+  if (Object.hasOwn(metadata, "multi_agent_version")
+    && !["v1", "v2", "disabled"].includes(metadata.multi_agent_version as string)) {
+    return "multi_agent_version 只支持 v1、v2 或 disabled（留空/删除该键表示自动）。";
   }
   if (Object.hasOwn(metadata, "default_reasoning_level") && metadata.default_reasoning_level !== null
     && (typeof metadata.default_reasoning_level !== "string" || !metadata.default_reasoning_level.trim())) {

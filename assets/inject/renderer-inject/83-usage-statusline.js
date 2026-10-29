@@ -1,5 +1,5 @@
   /**
-   * 输入框下方用量状态栏：生成速度 / 缓存命中率 / 上下文占用。
+   * 输入框下方用量状态栏：输出吞吐 / 缓存命中率 / 上下文占用。
    *
    * 数据全部来自 Codex 自己写的 rollout 记录（`event_msg.token_count`），中文档口径
    * 与 Codex 一致：缓存命中 = cached_input_tokens / input_tokens，上下文占用 =
@@ -40,15 +40,43 @@
     failures: 0,
     inFlight: false,
     lastFingerprint: "",
+    cache: new Map(),
+    observer: null,
   };
 
   const codexPlusUsageSvgNs = "http://www.w3.org/2000/svg";
 
+  /**
+   * 速度项只显示数字，名称和口径放在悬停提示里：这是含首 token 等待和工具执行的
+   * 吞吐，不是纯解码速度，不能再叫「生成速度」（issue #2636）。
+   */
   function codexPlusUsageText() {
     const language = (document.documentElement?.lang || navigator.language || "").toLowerCase();
     return language.startsWith("zh")
-      ? { speed: (value) => `${value} tok/s`, cache: (value) => `缓存命中 ${value}`, context: (value) => value, aria: "用量状态栏" }
-      : { speed: (value) => `${value} tok/s`, cache: (value) => `cache hit ${value}`, context: (value) => value, aria: "Usage status line" };
+      ? {
+        speed: (value) => `${value} tok/s`,
+        cache: (value) => `缓存命中 ${value}`,
+        context: (value) => value,
+        aria: "用量状态栏",
+        separator: "：",
+        comma: "，",
+        speedTitle: (value) => `输出吞吐 ${value} tok/s（本轮输出 token 合计 ÷ 对应耗时合计，含首 token 等待与工具执行，不是纯解码速度）`,
+        cacheTitle: (value) => `缓存命中 ${value}`,
+        contextTitle: (value) => `上下文占用 ${value}`,
+        windowTitle: (value) => `窗口 ${value}`,
+      }
+      : {
+        speed: (value) => `${value} tok/s`,
+        cache: (value) => `cache hit ${value}`,
+        context: (value) => value,
+        aria: "Usage status line",
+        separator: ": ",
+        comma: ", ",
+        speedTitle: (value) => `Output throughput ${value} tok/s (this turn's output tokens ÷ elapsed time, including time to first token and tool runs; not pure decode speed)`,
+        cacheTitle: (value) => `Cache hit ${value}`,
+        contextTitle: (value) => `Context used ${value}`,
+        windowTitle: (value) => `window ${value}`,
+      };
   }
 
   function codexPlusUsageInstallStyle() {
@@ -216,31 +244,73 @@
   }
 
   /**
-   * 生成速度（token/s）。
+   * 只取真实 turn_id 对应的最近一轮。total_token_usage 是会话累计，不会在换轮时
+   * 清零；旧记录或尾部截断缺少轮边界时只用最后一次调用，避免把前几轮混进来。
+   */
+  function codexPlusUsageLatestTurn(events) {
+    if (!Array.isArray(events) || !events.length) return [];
+    let start = events.length - 1;
+    const turnId = events[start].turn_id;
+    if (typeof turnId === "string" && turnId) {
+      while (start > 0 && events[start - 1].turn_id === turnId) start -= 1;
+    }
+    return events.slice(start);
+  }
+
+  /** 同一轮的多次模型调用按输入 token 加权，不能直接平均各次百分比。 */
+  function codexPlusUsageTurnCache(events) {
+    const segment = codexPlusUsageLatestTurn(events);
+    let input = 0;
+    let cached = 0;
+    for (const event of segment) {
+      const currentInput = Number(event.input_tokens) || 0;
+      const currentCached = Number(event.cached_input_tokens) || 0;
+      if (currentInput > 0) {
+        input += currentInput;
+        cached += Math.max(0, Math.min(currentCached, currentInput));
+      }
+    }
+    return input > 0 ? codexPlusUsagePercent(cached, input) : null;
+  }
+
+  /** 单个区间超过这个时长就当作长停顿（等审批、挂起、断线重连），不计入吞吐。 */
+  const codexPlusUsageMaxIntervalSeconds = 120;
+
+  /**
+   * 输出吞吐（token/s），issue #2636。
    *
-   * Codex 只在每次模型调用结束时写一条 token_count，事件间隔里同时包含生成和工具
-   * 执行时间，所以这是「吞吐」而不是纯生成速度，会比真实解码速度低。用同一轮内
-   * 相邻事件的累计输出差除以时间差得到区间速度，再取最近几个区间平均，避免单次
-   * 抖动。换轮时 turn_output_tokens 会回落，靠这个切段。
+   * Codex 只在每次模型调用结束时写一条 token_count，拿不到首个 token 的时间，事件
+   * 间隔里同时包含首 token 等待、解码和工具执行，所以这里只能给「吞吐」，不能叫
+   * 生成速度 / 解码速度，界面上也按这个口径命名。
+   *
+   * 口径：本轮各区间的输出 token 求和 ÷ 对应时长求和。不能对各区间速率等权平均：
+   * 工具步骤输出少、耗时长，最终回答输出多、耗时短，等权平均会让几十 token 的工具
+   * 步骤和上千 token 的回答同样有分量（issue 的算例：10.46 / 14.11 / 109.83 等权得
+   * 44.8，按总量是 1781 / 54.293 ≈ 32.8）。
+   *
+   * 不合格的区间整段剔除（分子分母一起剔）：累计输出没增长（重复记录 / 非单调）、
+   * 间隔过短（同一批写入）、间隔过长（中间停了很久）。没有合格区间时返回 null，
+   * 界面显示 `--`。turn_output_tokens 是历史字段名，实际为会话累计输出，需用真实
+   * 轮 id 切段。
    */
   function codexPlusUsageRate(events) {
-    const rates = [];
-    for (let index = 1; index < events.length; index += 1) {
-      const previous = events[index - 1];
-      const current = events[index];
+    const segment = codexPlusUsageLatestTurn(events);
+    let tokens = 0;
+    let seconds = 0;
+    for (let index = 1; index < segment.length; index += 1) {
+      const previous = segment[index - 1];
+      const current = segment[index];
       const previousOutput = Number(previous.turn_output_tokens) || 0;
       const currentOutput = Number(current.turn_output_tokens) || 0;
       if (currentOutput <= previousOutput) continue;
       const startedAt = Date.parse(previous.t);
       const endedAt = Date.parse(current.t);
-      const seconds = (endedAt - startedAt) / 1000;
-      // 间隔过短说明是同一批写入，过长说明中间停了很久，都不适合当速度样本。
-      if (!(seconds >= 0.5) || seconds > 120) continue;
-      rates.push((currentOutput - previousOutput) / seconds);
+      const interval = (endedAt - startedAt) / 1000;
+      if (!(interval >= 0.5) || interval > codexPlusUsageMaxIntervalSeconds) continue;
+      tokens += currentOutput - previousOutput;
+      seconds += interval;
     }
-    if (!rates.length) return null;
-    const recent = rates.slice(-3);
-    return recent.reduce((total, rate) => total + rate, 0) / recent.length;
+    return seconds > 0 ? tokens / seconds : null;
   }
 
   function codexPlusUsageSnapshot(events) {
@@ -249,7 +319,7 @@
     const observedAt = Date.parse(latest.t);
     return {
       speed: codexPlusUsageRate(events),
-      cache: codexPlusUsagePercent(Number(latest.cached_input_tokens), Number(latest.input_tokens)),
+      cache: codexPlusUsageTurnCache(events),
       context: codexPlusUsagePercent(Number(latest.total_tokens), Number(latest.context_window)),
       stale: Number.isFinite(observedAt) ? Date.now() - observedAt > codexPlusUsageStaleMs : false,
       modelContextWindow: Number(latest.context_window) || 0,
@@ -282,12 +352,12 @@
     }
     node.dataset.stale = String(stale);
     node.setAttribute("title", [
-      `生成速度 ${format(speed)} tok/s`,
-      `缓存命中 ${format(cache)}`,
-      `上下文占用 ${format(context)}`,
-      contextWindow > 0 ? `窗口 ${contextWindow}` : "",
+      text.speedTitle(format(speed)),
+      text.cacheTitle(format(cache)),
+      text.contextTitle(format(context)),
+      contextWindow > 0 ? text.windowTitle(contextWindow) : "",
     ].filter(Boolean).join(" · "));
-    node.setAttribute("aria-label", `${text.aria}：${text.speed(speed)}，${text.cache(cache)}，${context}`);
+    node.setAttribute("aria-label", `${text.aria}${text.separator}${[text.speedTitle(speed), text.cache(cache), context].join(text.comma)}`);
   }
 
   function codexPlusUsageSchedule(delay) {
@@ -300,6 +370,66 @@
     return !codexPlusUsageState.disposed
       && codexPlusBackendSettingsLoaded
       && codexPlusSettings().usageStatusLine === true;
+  }
+
+  /** 挂载与取数分开：切换时先恢复栏位，网络请求只更新数值。 */
+  function codexPlusUsageSyncPlacement() {
+    const card = codexPlusUsageEnabled() ? codexPlusUsageComposerCard() : null;
+    const threadId = codexPlusUsageThreadId(card);
+    if (!card || !threadId) {
+      codexPlusUsageHide();
+      codexPlusUsageState.threadId = "";
+      return null;
+    }
+    const changed = codexPlusUsageState.threadId !== threadId
+      || !codexPlusUsageState.node?.isConnected
+      || codexPlusUsageState.node.previousElementSibling !== card;
+    const node = codexPlusUsageEnsureNode(card);
+    if (!node) return null;
+    if (changed) {
+      codexPlusUsageState.threadId = threadId;
+      codexPlusUsageState.failures = 0;
+      codexPlusUsageState.lastFingerprint = "";
+    }
+    codexPlusUsageShow(node);
+    codexPlusUsageRender(codexPlusUsageSnapshot(codexPlusUsageState.cache.get(threadId)));
+    return { card, threadId, changed };
+  }
+
+  function codexPlusUsageRemember(threadId, events) {
+    if (!events?.length) return;
+    codexPlusUsageState.cache.delete(threadId);
+    codexPlusUsageState.cache.set(threadId, events.slice(-24));
+    if (codexPlusUsageState.cache.size > 32) {
+      codexPlusUsageState.cache.delete(codexPlusUsageState.cache.keys().next().value);
+    }
+  }
+
+  /** 只观察输入框结构和会话标识，忽略状态栏自身的写入，避免自喂循环。 */
+  function codexPlusUsageObserve() {
+    if (!document.body || typeof MutationObserver !== "function") return;
+    const selector = "[data-codex-composer-root], [data-composer-surface-variant], [data-above-composer-conversation-id]";
+    codexPlusUsageState.observer = new MutationObserver((records) => {
+      const relevant = records.some((record) => {
+        if (record.target?.closest?.("[data-codex-plus-ext]")) return false;
+        if (record.type === "attributes") return true;
+        return [...record.addedNodes, ...record.removedNodes].some((node) =>
+          node.nodeType === 1 && !node.matches?.("[data-codex-plus-ext]")
+          && (node.matches?.(selector) || node.querySelector?.(selector)));
+      });
+      if (!relevant) return;
+      const placement = codexPlusUsageSyncPlacement();
+      if (placement?.changed) codexPlusUsageSchedule(0);
+    });
+    codexPlusUsageState.observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: [
+        "data-above-composer-conversation-id", "data-composer-placement",
+        "data-app-action-sidebar-thread-selected", "data-app-action-sidebar-thread-id",
+      ],
+    });
   }
 
   async function codexPlusUsageRefresh(threadId) {
@@ -327,30 +457,21 @@
       codexPlusUsageSchedule(codexPlusUsageIdleIntervalMs);
       return;
     }
-    const card = codexPlusUsageComposerCard();
-    const threadId = codexPlusUsageThreadId(card);
-    if (!card || !threadId) {
-      codexPlusUsageHide();
-      codexPlusUsageState.threadId = "";
+    const placement = codexPlusUsageSyncPlacement();
+    if (!placement) {
       codexPlusUsageSchedule(codexPlusUsageIdleIntervalMs);
       return;
     }
-    codexPlusUsageInstallStyle();
-    const node = codexPlusUsageEnsureNode(card);
-    if (!node) {
-      codexPlusUsageSchedule(codexPlusUsageIdleIntervalMs);
+    const { threadId } = placement;
+    if (codexPlusUsageState.inFlight) {
+      codexPlusUsageSchedule(codexPlusUsageActiveIntervalMs);
       return;
-    }
-    // 换会话时清掉上一个会话的读数，避免把旧数字挂在新会话上。
-    if (codexPlusUsageState.threadId !== threadId && codexPlusUsageState.node === node) {
-      codexPlusUsageState.threadId = threadId;
-      codexPlusUsageState.lastFingerprint = "";
     }
     let events = null;
     try {
       events = await codexPlusUsageRefresh(threadId);
     } catch (error) {
-      codexPlusUsageState.failures += 1;
+      if (codexPlusUsageState.threadId === threadId) codexPlusUsageState.failures += 1;
       if (codexPlusUsageState.failures === codexPlusUsageFailureLimit) {
         sendCodexPlusDiagnostic("usage_statusline_bridge_failed", {
           errorName: error?.name || "",
@@ -359,36 +480,43 @@
       }
     }
     if (codexPlusUsageState.disposed) return;
-    const snapshot = events ? codexPlusUsageSnapshot(events) : null;
+    codexPlusUsageRemember(threadId, events);
+    const current = codexPlusUsageSyncPlacement();
+    if (!current || current.threadId !== threadId) {
+      codexPlusUsageSchedule(current ? 0 : codexPlusUsageIdleIntervalMs);
+      return;
+    }
+    const snapshot = codexPlusUsageSnapshot(codexPlusUsageState.cache.get(threadId));
     if (snapshot) {
-      codexPlusUsageShow(node);
       codexPlusUsageRender(snapshot);
       // 刚有事件说明本轮在跑，加密轮询；本轮已经结束就拉长间隔。
       codexPlusUsageSchedule(snapshot.stale ? codexPlusUsageIdleIntervalMs : codexPlusUsageActiveIntervalMs);
       return;
     }
     if (codexPlusUsageState.failures >= codexPlusUsageFailureLimit) {
-      // 桥接连续失败：整条隐藏，退到慢轮询，等宿主恢复。
-      codexPlusUsageHide();
+      // 桥接连续失败仍保留栏位与最近读数，只降低取数频率。
       codexPlusUsageSchedule(30000);
       return;
     }
     // 会话已经确定、只是还没写出 token 事件（新会话第一轮）：先显示占位符，
     // 用较慢的间隔等第一条数据，避免空转。
-    codexPlusUsageShow(node);
     codexPlusUsageRender(null);
     codexPlusUsageSchedule(codexPlusUsageWarmupIntervalMs);
   }
 
   codexPlusUsageInstallStyle();
+  codexPlusUsageObserve();
+  codexPlusUsageSyncPlacement();
   codexPlusUsageSchedule(600);
   window.__codexPlusUsageStatusLineRuntime = {
-    version: 1,
+    version: 2,
     sync: () => codexPlusUsageSchedule(0),
     dispose() {
       codexPlusUsageState.disposed = true;
       clearTimeout(codexPlusUsageState.timer);
       codexPlusUsageState.timer = 0;
+      codexPlusUsageState.observer?.disconnect();
+      codexPlusUsageState.cache.clear();
       // 卸载时把节点整个摘掉：注入会被重跑，留一个隐藏节点等于每次重注入多挂一个。
       codexPlusUsageState.node?.remove();
       codexPlusUsageState.node = null;

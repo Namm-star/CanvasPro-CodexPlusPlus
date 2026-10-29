@@ -21,6 +21,7 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 Var ExistingInstall
 Var HadDesktopEntry
+Var LegacyDeleteTries
 
 !define MUI_ICON "${ROOT}\apps\codex-plus-manager\src-tauri\icons\icon.ico"
 !define MUI_UNICON "${ROOT}\apps\codex-plus-manager\src-tauri\icons\icon.ico"
@@ -84,9 +85,19 @@ Section "Install"
   Push "codex-plus-plus-manager.exe"
   Call WaitForProcessExit
 
-  ; 双程序版本升级时只保留统一应用；清理失败则停止，避免残留旧管理工具。
+  ; 双程序版本升级时只保留统一应用。旧管理工具可能在本安装器被拉起后
+  ; 才真正退出（更新入口本身就跑在 manager 里），WaitForProcessExit 看到
+  ; 进程名消失时文件锁未必立刻释放，Delete 会静默失败；此处再轮询重试，
+  ; 而不是一次失败就把整次安装 Abort 掉（issue #2460）。
+  StrCpy $LegacyDeleteTries 0
+  legacy_binary_delete_loop:
   Delete "$INSTDIR\codex-plus-plus-manager.exe"
   IfFileExists "$INSTDIR\codex-plus-plus-manager.exe" 0 legacy_binary_removed
+    IntOp $LegacyDeleteTries $LegacyDeleteTries + 1
+    IntCmp $LegacyDeleteTries 20 legacy_binary_delete_failed
+    Sleep 500
+    Goto legacy_binary_delete_loop
+  legacy_binary_delete_failed:
     MessageBox MB_OK|MB_ICONSTOP "旧管理工具仍被占用。请退出 Codex++ 后重新安装。"
     Abort
   legacy_binary_removed:
@@ -96,7 +107,7 @@ Section "Install"
   File "${ROOT}\ATTRIBUTION.md"
   File /oname=CanvasPro使用说明.md "${ROOT}\docs\CANVASPRO.md"
   SetOutPath "$INSTDIR\images"
-  File "${ROOT}\docs\images\canvaspro-support-group-20261015.png"
+  File "${ROOT}\docs\images\canvaspro-support-group-20261029.png"
   SetOutPath "$INSTDIR"
 
   ; 只迁移确实存在的桌面入口，用户删掉的入口在升级时仍不补建（issue #2376）。
@@ -166,6 +177,12 @@ Section "Uninstall"
   Push "codex-plus-plus-manager.exe"
   Call un.WaitForProcessExit
 
+  ; 删除主程序前恢复 config.toml：仍指向本机代理 127.0.0.1:57321 时清回官方配置，
+  ; 否则卸载后官方 Codex 每次请求都 502（issue #406）。静默卸载同样执行；
+  ; 主程序失败也以 0 退出，不阻塞卸载。
+  IfFileExists "$INSTDIR\codex-plus-plus.exe" 0 +2
+    ExecWait '"$INSTDIR\codex-plus-plus.exe" --codex-plus-uninstall-cleanup'
+
   Delete "$DESKTOP\Codex++.lnk"
   Delete "$DESKTOP\Codex++ 管理工具.lnk"
   Delete "$DESKTOP\Codex++ 绠＄悊宸ュ叿.lnk"
@@ -191,6 +208,7 @@ Section "Uninstall"
   Delete "$INSTDIR\CanvasPro使用说明.md"
   Delete "$INSTDIR\images\canvaspro-support-group-20261004.png"
   Delete "$INSTDIR\images\canvaspro-support-group-20261015.png"
+  Delete "$INSTDIR\images\canvaspro-support-group-20261029.png"
   RMDir "$INSTDIR\images"
   RMDir "$INSTDIR"
 

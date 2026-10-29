@@ -408,7 +408,7 @@ fn publish(inputs: &TakeoverInputs, decision: TakeoverDecision) {
 // ---------------------------------------------------------------- 输入采集
 
 fn collect_inputs() -> Result<TakeoverInputs, String> {
-    let mut state = with_inner(|state| {
+    let state = with_inner(|state| {
         (
             state.last_attempt,
             state.our_launch_at,
@@ -418,7 +418,11 @@ fn collect_inputs() -> Result<TakeoverInputs, String> {
             state.paused_instance.clone(),
         )
     });
-    let platform_supported = cfg!(any(target_os = "macos", windows));
+    // 与 `Inner::default()` 和 `payload()` 保持同一判定：自动接管只在 macOS 启用。
+    // 此前这里单独用 `any(macos, windows)`，Windows 上守护线程确实会运行，
+    // 而 UI 读到的 platform_supported 却是 false，用户勾选开关后表现为
+    // 「反复拉起白色窗口、界面却显示不支持」（#2573）。
+    let platform_supported = cfg!(target_os = "macos");
     let enabled = is_enabled();
     let session_snapshot = codex_plus_launcher::session_snapshot();
     let latest = StatusStore::default().load_latest().ok().flatten();
@@ -437,16 +441,13 @@ fn collect_inputs() -> Result<TakeoverInputs, String> {
         AppProbe::Running(key) => Some(key.pid),
         _ => None,
     };
-    let multi_instance_running = app_dir
-        .as_deref()
-        .is_some_and(|app_dir| {
-            codex_plus_core::auto_takeover::has_other_desktop_instance(
-                app_dir,
-                actual_port,
-                current_pid,
-            )
-        })
-        || multi_instance_running();
+    let multi_instance_running = app_dir.as_deref().is_some_and(|app_dir| {
+        codex_plus_core::auto_takeover::has_other_desktop_instance(
+            app_dir,
+            actual_port,
+            current_pid,
+        )
+    }) || multi_instance_running();
     let user_active = user_seems_active();
 
     let session = SessionSnapshot {
@@ -503,10 +504,6 @@ fn probe_desktop_app(app_dir: &Path) -> AppProbe {
 fn current_instance() -> Option<InstanceKey> {
     let latest = StatusStore::default().load_latest().ok().flatten();
     let app_dir = resolve_app_dir(latest.as_ref())?;
-    let port = latest
-        .as_ref()
-        .and_then(|status| status.debug_port)
-        .unwrap_or_else(default_debug_port);
     match probe_desktop_app(&app_dir) {
         AppProbe::Running(key) => Some(key),
         _ => None,

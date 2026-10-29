@@ -16,6 +16,8 @@ use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
+mod native_fast;
+
 pub const BRIDGE_BINDING_NAME: &str = "codexSessionDeleteV2";
 const CDP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const CDP_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -154,8 +156,13 @@ pub fn bridge_health_check_script() -> &'static str {
   const lastSuccessAt = Number(health.lastSuccessAt) || 0;
   const lastInjectionAt = Number(health.lastInjectionAt) || 0;
   const lastAttemptAt = Number(health.lastAttemptAt) || 0;
+  const failures = Number(health.failures) || 0;
   if (lastInjectionAt > 0 && now - lastInjectionAt <= 5000) return true;
   if (lastSuccessAt > 0 && now - lastSuccessAt <= 15000) return true;
+  // 连续失败且超过 15 秒没有一次成功：CDP 连接可能已经断了。此时不能只看
+  // lastAttemptAt——挂死的 bridge 会一直“尝试”却永远不成功，心跳尝试反而
+  // 会让看门狗永不重注入。重注入会把挂起的 resolver 统一 resolve 掉。
+  if (failures >= 3 && (lastSuccessAt === 0 || now - lastSuccessAt > 15000)) return false;
   // 页面忙碌时状态请求会超时，但心跳仍在调用桥接。最近一次尝试也算活着，
   // 避免看门狗把整份脚本反复注入并触发整页刷新。
   return lastAttemptAt > 0 && now - lastAttemptAt <= 15000;
@@ -163,8 +170,101 @@ pub fn bridge_health_check_script() -> &'static str {
 "#
 }
 
+#[cfg(test)]
+mod native_quota_settings_tests {
+    use super::native_quota_settings_from;
+    use crate::settings::{BackendSettings, RelayMode, RelayProfile};
+
+    fn relay(id: &str, mode: RelayMode, mix: bool) -> RelayProfile {
+        RelayProfile {
+            id: id.to_string(),
+            relay_mode: mode,
+            official_mix_api_key: mix,
+            api_key: "sk-secret".to_string(),
+            ..RelayProfile::default()
+        }
+    }
+
+    /// 独立门禁要按聚合成员判断，所以带上当前聚合的成员；Key 一类的字段不能进页面。
+    #[test]
+    fn active_aggregate_members_are_sent_without_secrets() {
+        let mut settings = BackendSettings {
+            relay_profiles_enabled: true,
+            relay_profiles: vec![
+                relay("agg", RelayMode::Aggregate, false),
+                relay("login", RelayMode::Official, false),
+                relay("api", RelayMode::PureApi, false),
+            ],
+            active_relay_id: "agg".to_string(),
+            ..BackendSettings::default()
+        };
+        settings.aggregate_relay_profiles = vec![
+            serde_json::from_value(serde_json::json!({
+                "id": "agg", "name": "聚合",
+                "members": [{"relayId": "login", "weight": 1}, {"relayId": "api", "weight": 1}],
+                "defaultRelayId": "login"
+            }))
+            .unwrap(),
+        ];
+        let payload = native_quota_settings_from(&settings);
+        let ids: Vec<&str> = payload["relayProfiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|profile| profile["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["agg", "login", "api"]);
+        assert_eq!(payload["aggregateRelayProfiles"][0]["members"][1]["relayId"], "api");
+        assert!(!payload.to_string().contains("sk-secret"), "{payload}");
+
+        settings.active_relay_id = "login".to_string();
+        let payload = native_quota_settings_from(&settings);
+        assert_eq!(payload["relayProfiles"].as_array().unwrap().len(), 1);
+        assert!(payload["aggregateRelayProfiles"].as_array().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod bridge_health_script_tests {
+    use super::bridge_health_check_script;
+
+    /// 桥接挂死时 `lastAttemptAt` 仍会被心跳刷新；健康判定必须让「连续失败 +
+    /// 长时间没有成功」优先于「最近尝试过」，否则看门狗永远不会重注入。
+    #[test]
+    fn repeated_failures_without_success_are_unhealthy() {
+        let script = bridge_health_check_script();
+        let failures_guard = script
+            .find("failures >= 3")
+            .expect("健康脚本应包含连续失败判定");
+        let attempt_fallback = script
+            .find("lastAttemptAt > 0")
+            .expect("健康脚本应保留最近尝试兜底");
+        assert!(
+            failures_guard < attempt_fallback,
+            "连续失败判定必须在 lastAttemptAt 兜底之前生效"
+        );
+    }
+}
+
 pub async fn evaluate_script(websocket_url: &str, script: &str) -> anyhow::Result<Value> {
     evaluate_script_with_await_promise(websocket_url, script, false).await
+}
+
+/// 拓展 `/cdp/evaluate` 专用。对象和数组必须按值返回，否则 CDP 只给 objectId。
+pub async fn evaluate_script_return_by_value(
+    websocket_url: &str,
+    script: &str,
+) -> anyhow::Result<Value> {
+    let socket = connect_cdp_websocket(websocket_url).await?;
+    let mut session = CdpSession::new(socket);
+    let response = session
+        .send_command(
+            1,
+            "Runtime.evaluate",
+            runtime_evaluate_params_return_by_value(script),
+        )
+        .await?;
+    ensure_runtime_evaluate_succeeded(response)
 }
 
 pub async fn evaluate_script_with_await_promise(
@@ -280,20 +380,49 @@ pub async fn add_script_to_new_documents(
 const NATIVE_QUOTA_SETTINGS_BINDING: &str = "codexPlusNativeQuotaSettings";
 
 fn native_quota_settings() -> Value {
-    // 只传额度策略必需字段，不能把 Key、configContents 或 authContents 放进页面。
     let Ok(settings) = crate::settings::SettingsStore::default().load() else {
         return Value::Null;
     };
+    native_quota_settings_from(&settings)
+}
+
+/// 只传额度策略必需字段，不能把 Key、configContents 或 authContents 放进页面。
+/// 当前是聚合供应商时带上它的成员（同样只有模式与是否混入 Key），独立门禁和增强模式按同一标准判断。
+fn native_quota_settings_from(settings: &crate::settings::BackendSettings) -> Value {
+    let policy = |profile: &crate::settings::RelayProfile| {
+        json!({
+            "id": profile.id,
+            "relayMode": profile.relay_mode,
+            "officialMixApiKey": profile.official_mix_api_key,
+        })
+    };
     let profile = settings.active_relay_profile();
+    let mut relay_profiles = vec![policy(&profile)];
+    let mut aggregates = Vec::new();
+    if let Some(aggregate) = settings.active_aggregate_relay_profile() {
+        for member in &aggregate.members {
+            if let Some(found) = settings
+                .relay_profiles
+                .iter()
+                .find(|candidate| candidate.id == member.relay_id && candidate.id != profile.id)
+            {
+                relay_profiles.push(policy(found));
+            }
+        }
+        let members: Vec<Value> = aggregate
+            .members
+            .iter()
+            .map(|member| json!({ "relayId": member.relay_id }))
+            .collect();
+        aggregates.push(json!({ "id": aggregate.id, "members": members }));
+    }
     json!({
         "codexAppStandaloneQuotaUnlock": settings.codex_app_standalone_quota_unlock,
         "relayProfilesEnabled": settings.relay_profiles_enabled,
         "activeRelayId": profile.id,
-        "relayProfiles": [{
-            "id": profile.id,
-            "relayMode": profile.relay_mode,
-            "officialMixApiKey": profile.official_mix_api_key,
-        }],
+        "activeAggregateRelayId": settings.active_aggregate_relay_id,
+        "relayProfiles": relay_profiles,
+        "aggregateRelayProfiles": aggregates,
     })
 }
 
@@ -657,15 +786,16 @@ async fn run_app_server_client_capture(
     let settings = crate::settings::SettingsStore::default()
         .load()
         .unwrap_or_default();
-    if !settings.codex_app_service_tier_controls
-        && !settings.codex_app_model_whitelist_unlock
-        && !settings.codex_app_session_delete
-    {
+    if !settings.codex_app_model_whitelist_unlock && !settings.codex_app_session_delete {
         return Ok(());
     }
     let socket = connect_cdp_websocket(websocket_url).await?;
     let mut session = CdpSession::new(socket);
-    let probe_script = app_server_client_capture_probe_script();
+    let probe_script = if crate::native_predictions::native_modules_requested(&settings) {
+        "window.__codexPlusNativeFastAssetPatchReady===true&&['armed','patched'].includes(window.__codexPlusNativeFastPatchState)&&window.__codexPlusNativeFastCompiled!=='v1'?null:JSON.stringify(window.__codexPlusAppServerClientCapture||null)"
+    } else {
+        app_server_client_capture_probe_script()
+    };
     let location_wait = async {
         loop {
             if !bridge_generation_is_current(&generation) {
@@ -919,8 +1049,16 @@ pub async fn install_bridge(
     let generation = next_bridge_generation(websocket_url);
     session = session.with_generation(generation.clone());
     let mut registered_script_ids = Vec::new();
+    let native_modules_requested = crate::settings::SettingsStore::default()
+        .load()
+        .is_ok_and(|settings| crate::native_predictions::native_modules_requested(&settings));
 
     let install_result: anyhow::Result<()> = async {
+        if native_modules_requested {
+            session
+                .send_command(next_message_id(), "Page.enable", json!({}))
+                .await?;
+        }
         session.send_command(1, "Runtime.enable", json!({})).await?;
         session
             .send_command(2, "Runtime.removeBinding", json!({ "name": binding_name }))
@@ -992,6 +1130,12 @@ pub async fn install_bridge(
         json!({ "generation": generation.id }),
     );
 
+    if let Err(error) = native_fast::install(websocket_url, generation.clone()).await {
+        let _ = crate::diagnostic_log::append_diagnostic_log(
+            "bridge.native_fast_interceptor_failed",
+            json!({ "message": error.to_string() }),
+        );
+    }
     spawn_app_server_client_capture(websocket_url, generation.clone());
 
     let mut pending_calls = FuturesUnordered::new();
@@ -1050,6 +1194,14 @@ fn collect_script_identifier(response: &Value, identifiers: &mut Vec<String>) {
 
 pub fn runtime_evaluate_params(script: &str) -> Value {
     runtime_evaluate_params_with_await_promise(script, false)
+}
+
+pub fn runtime_evaluate_params_return_by_value(script: &str) -> Value {
+    let mut params = runtime_evaluate_params(script);
+    if let Some(object) = params.as_object_mut() {
+        object.insert("returnByValue".to_string(), Value::Bool(true));
+    }
+    params
 }
 
 pub fn runtime_evaluate_params_with_await_promise(script: &str, await_promise: bool) -> Value {
@@ -1112,6 +1264,7 @@ struct CdpSession<S> {
     socket: S,
     responses: HashMap<u64, Value>,
     binding_calls: VecDeque<Value>,
+    fetch_requests: VecDeque<Value>,
     paused_events: VecDeque<(Value, usize, u64)>,
     paused_event_bytes: usize,
     pause_epoch: u64,
@@ -1133,6 +1286,7 @@ where
             socket,
             responses: HashMap::new(),
             binding_calls: VecDeque::new(),
+            fetch_requests: VecDeque::new(),
             paused_events: VecDeque::new(),
             paused_event_bytes: 0,
             pause_epoch: 0,
@@ -1308,6 +1462,13 @@ where
 
         if value.get("method").and_then(Value::as_str) == Some("Runtime.bindingCalled") {
             self.binding_calls.push_back(value.clone());
+        }
+        if value.get("method").and_then(Value::as_str) == Some("Fetch.requestPaused") {
+            anyhow::ensure!(
+                self.fetch_requests.len() < 32,
+                "CDP Fetch event queue exceeded its bounded capacity"
+            );
+            self.fetch_requests.push_back(value.clone());
         }
 
         Ok(Some(value))

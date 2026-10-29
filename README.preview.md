@@ -80,14 +80,6 @@ Codex++ 是面向 OpenAI Codex / ChatGPT 桌面应用的外部启动器与管理
   </tr>
   <tr>
     <td align="center">
-      <a href="https://grooroute.com/register?aff=2B3KJR5SRNTX">
-        <img src="docs/images/sponsor-grooroute.png" alt="GrooRoute" width="170">
-      </a>
-    </td>
-    <td><a href="https://grooroute.com/register?aff=2B3KJR5SRNTX"><strong>GrooRoute</strong></a><br>GrooRoute 提供 Claude 与 GPT 全系官方原模型，一行配置即可接入 Claude Code、Codex 或直接调用 API，官方承诺不掺假、永久保真。限时注册活动：充值 50 美元赠送 50 美元，通过<a href="https://grooroute.com/register?aff=2B3KJR5SRNTX">专属链接注册</a>并完成充值后，联系客服即可获取优惠。官网：<a href="https://grooroute.com/">grooroute.com</a>。</td>
-  </tr>
-  <tr>
-    <td align="center">
       <a href="https://runapi.host/register?aff=AWJq">
         <img src="docs/images/sponsor-runapi.png" alt="RunAPI" width="150">
       </a>
@@ -143,8 +135,20 @@ Codex++ 是面向 OpenAI Codex / ChatGPT 桌面应用的外部启动器与管理
       语音输入、粘贴修复、会话宽度、滚动位置恢复、下一步建议、回答大纲与光标打字特效。
     </td>
     <td valign="top">
-      <h3>🐳 用量可见，也有陪伴</h3>
-      用量挂件、可更换的桌宠角色、任务状态和预算提醒，搭配皮肤与自定义图片，让界面更有自己的风格。
+      <h3>🐳 Agent 桌宠，工作也有陪伴</h3>
+      在 Codex 里放一只桌宠，点一下会压扁并播放音效；图片从内置图库挑选或换成自己的。
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <h3>⚡ 纯 API Key 也能选择原生 Fast</h3>
+      按需解锁 Codex 原生 Standard / Fast 控件。默认关闭；为模型配置 Fast（priority）支持后，使用供应商提供的优先服务等级，实际支持与计费以供应商为准。
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <h3>🛡️ 请求避震</h3>
+      在代理层吸收上游过载：模型容量/过载错误（server_overloaded、server_is_overloaded、at capacity 等）自动退避重试。流式避震保留实时输出；整段缓冲避震先收完整段响应再转发，任何时点的过载都由代理重试。可在「代理设置 → 请求避震」切换，请求日志实时显示进行中请求、首字耗时与完整耗时。
     </td>
   </tr>
 </table>
@@ -161,10 +165,20 @@ Codex++ 是面向 OpenAI Codex / ChatGPT 桌面应用的外部启动器与管理
   <summary><strong>展开查看 Codex 内的增强设置</strong></summary>
 
 <p align="center">
-  <img src="docs/images/readme-preview/in-app-settings.png" alt="Codex 内的增强设置：后端状态、模型列表、Fast 按钮与会话操作" width="100%">
+  <img src="docs/images/readme-preview/in-app-settings.png" alt="Codex 内的增强设置示例：后端状态、模型列表与会话操作" width="100%">
 </p>
 
 </details>
+
+### 纯 API Key，也能使用原生 Fast 控件
+
+「原生 Fast 强制解锁」让纯 API Key 模式可以在支持的模型上使用 Codex 原生 **Standard / ⚡ Fast** 控件，沿用原生的模型与推理强度菜单。
+
+1. 打开管理器「Codex 增强 → 常用增强」，开启增强总开关与「原生 Fast 强制解锁」（默认关闭）。
+2. 确认模型已声明 Fast 服务等级；需要手动配置时，在「供应商配置」中打开对应模型的配置，设置「Fast（priority）支持」，保存模型与供应商。
+3. 保存增强设置，从 Codex++ 重新启动 Codex，再打开模型或推理强度菜单，选择 **⚡ Fast**；需要恢复时选择 **Standard**。
+
+实际可用性、提速效果与计费由供应商决定，开启此功能不会让所有模型自动提速。关闭选项并重启 Codex 即可恢复原生身份判断。
 
 ### 让拓展适应你的工作流
 
@@ -178,22 +192,13 @@ Codex++ 是面向 OpenAI Codex / ChatGPT 桌面应用的外部启动器与管理
 
 ### 认真工作，也可以有点趣味
 
-<table>
-  <tr>
-    <td width="42%" valign="top">
-      <strong>用量挂件与桌宠</strong><br>
-      查看本地会话 Token 与任务状态，支持拖动、缩放和更换角色图片。
-      <p><img src="docs/images/readme-preview/usage-widget.png" alt="角色用量挂件：气泡显示 Token 统计和运行状态" width="100%"></p>
-    </td>
-    <td width="58%" valign="top">
-      <strong>光标打字特效</strong><br>
-      彩虹粒子、烟花与星光，让输入多一点反馈。可随时关闭，系统减少动态效果时暂停。
-      <p><img src="docs/images/readme-preview/typing-effects.png" alt="Codex 输入框中的彩虹粒子打字特效" width="100%"></p>
-    </td>
-  </tr>
-</table>
+<p>
+  <strong>光标打字特效</strong><br>
+  彩虹粒子、烟花与星光，让输入多一点反馈。可随时关闭，系统减少动态效果时暂停。
+  <img src="docs/images/readme-preview/typing-effects.png" alt="Codex 输入框中的彩虹粒子打字特效" width="58%">
+</p>
 
-用量挂件默认关闭，可在「Codex 增强 → 常用增强 → 挂件与桌宠」开启。API 余额为可选能力，与会话 Token、订阅额度分别统计，详见 [用量挂件说明](docs/whale-widget.md)。角色素材归属见该文档的参考来源。
+Agent 桌宠默认关闭，可在管理器「Agent 桌宠」页开启，目前支持 Codex。图片在运行时联网拉取并缓存在本机，详见 [Agent 桌宠说明](docs/agent-pet.md)。
 
 ## 快速上手
 

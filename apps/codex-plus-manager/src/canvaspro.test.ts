@@ -69,6 +69,11 @@ describe("CanvasPro setup", () => {
     assert.deepEqual(events, ["apply"]);
   });
 
+  it("preserves failed or cancelled launch status after saving configuration", async () => {
+    assert.equal(await activateCanvasPro(async () => true, async () => false), false);
+    assert.equal(await activateCanvasPro(async () => true, async () => true), true);
+  });
+
   it("does not launch when writing configuration throws", async () => {
     let launched = false;
     await assert.rejects(activateCanvasPro(async () => { throw new Error("fixture write failure"); },

@@ -23,7 +23,7 @@ const manifest = {
   tag, version, platform,
   repository: 'Namm-star/CanvasPro-CodexPlusPlus',
   sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-  upstreamCommit: 'a5f531d0d2d510a984890f26fdbbc98d995c12ad',
+  upstreamCommit: '97278ddf11570a6cae7297379c1354a63dfeb13d',
   node: process.version,
   rust: execFileSync('rustc', ['--version'], { encoding: 'utf8' }).trim(),
   ...(platform === 'macos-universal' ? { architectures: ['x86_64', 'arm64'], signing: 'ad-hoc', appleNotarized: false } : {}),

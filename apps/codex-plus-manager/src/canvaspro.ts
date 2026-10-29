@@ -59,9 +59,8 @@ export function canvasProProfileId(profiles: { id: string; baseUrl: string; rela
 /** 配置失败时禁止启动，避免用户以为已切换而继续使用原供应商。 */
 export async function activateCanvasPro(
   apply: () => Promise<boolean>,
-  launch: () => Promise<void>,
+  launch: () => Promise<void | boolean>,
 ): Promise<boolean> {
   if (!await apply()) return false;
-  await launch();
-  return true;
+  return await launch() !== false;
 }

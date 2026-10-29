@@ -9,7 +9,9 @@ STAGE="$DIST/stage"
 BINARY_DIR="${BINARY_DIR:-$ROOT/target/release}"
 DMG="$DIST/CanvasPro-CodexPlusPlus-${VERSION}-macos-${ARCH}.dmg"
 APP_VERSION="${VERSION%%-*}"
-ICON_SOURCE="$ROOT/apps/codex-plus-manager/src-tauri/icons/icon.png"
+# macOS 用带圆角方形底的版本：macOS 26 会把不是标准圆角方形的图标放进一块灰色底板。没有时退回通用图标。
+ICON_SOURCE="$ROOT/apps/codex-plus-manager/src-tauri/icons/icon-macos.png"
+[ -f "$ICON_SOURCE" ] || ICON_SOURCE="$ROOT/apps/codex-plus-manager/src-tauri/icons/icon.png"
 ICON_NAME="codex-plus-plus.icns"
 ICON_ICNS="$DIST/$ICON_NAME"
 BACKGROUND_SOURCE="$ROOT/assets/installer/macos/dmg-background.svg"
@@ -77,7 +79,7 @@ create_app() {
   cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/ATTRIBUTION.md" "$app_dir/Contents/Resources/"
   cp "$ROOT/docs/CANVASPRO.md" "$app_dir/Contents/Resources/CanvasPro使用说明.md"
   mkdir -p "$app_dir/Contents/Resources/images"
-  cp "$ROOT/docs/images/canvaspro-support-group-20261015.png" "$app_dir/Contents/Resources/images/"
+  cp "$ROOT/docs/images/canvaspro-support-group-20261029.png" "$app_dir/Contents/Resources/images/"
   chmod +x "$app_dir/Contents/MacOS/$executable_name"
   printf 'APPL????' > "$app_dir/Contents/PkgInfo"
   if [ "$executable_name" = "CodexPlusPlus" ]; then
@@ -141,6 +143,9 @@ SIGNING_IDENTITY="${MACOS_SIGNING_IDENTITY:-}"
 # 公证凭据 profile（notarytool store-credentials 存的那个名字）。
 # 设为空则跳过公证，只签名。
 NOTARY_PROFILE="${MACOS_NOTARY_PROFILE:-}"
+# 正式（Developer ID + hardened runtime）签名用的 entitlements（文件存在时才带）。
+# 注意：plist 里不要写 XML 注释——AMFI 解析器很严格，注释里出现 "--" 就会报
+# "AMFIUnserializeXML: syntax error"，说明一律写在这里。
 ENTITLEMENTS="$ROOT/scripts/installer/macos/entitlements.plist"
 
 # 签名参数必须用数组装：身份串里含空格
@@ -166,7 +171,8 @@ sign_app() {
     extra=(--entitlements "$ENTITLEMENTS")
   fi
   codesign --force "${SIGN_ARGS[@]}" ${extra[@]+"${extra[@]}"} "$app_dir/Contents/MacOS/$executable"
-  codesign --force "${SIGN_ARGS[@]}" "$app_dir"
+  # bundle 签名会重签主可执行文件，这里不带 entitlements 会把上一步的冲掉。
+  codesign --force "${SIGN_ARGS[@]}" ${extra[@]+"${extra[@]}"} "$app_dir"
 }
 
 sign_dmg() {
@@ -254,7 +260,7 @@ ln -s /Applications "$STAGE/Applications"
 cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/ATTRIBUTION.md" "$STAGE/"
 cp "$ROOT/docs/CANVASPRO.md" "$STAGE/CanvasPro使用说明.md"
 mkdir -p "$STAGE/images"
-cp "$ROOT/docs/images/canvaspro-support-group-20261015.png" "$STAGE/images/"
+cp "$ROOT/docs/images/canvaspro-support-group-20261029.png" "$STAGE/images/"
 
 DMG_WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-plus-plus-dmg.XXXXXX")"
 DMG_WORK_PATH="$DMG_WORK_DIR/$(basename "$DMG")"

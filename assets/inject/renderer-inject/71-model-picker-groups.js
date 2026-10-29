@@ -39,6 +39,8 @@
   const codexPlusModelPickerNativeLabelClass = "codex-plus-model-group-native-label";
   /** 我们自己插入的模型标签类名。 */
   const codexPlusModelPickerOwnLabelClass = "codex-plus-model-group-own-label";
+  /** 在 Codex++ 里收藏过的模型，行尾的星标。 */
+  const codexPlusModelPickerFavoriteClass = "codex-plus-model-group-favorite";
   /** 行上的分组标记属性。 */
   const codexPlusModelPickerGroupAttr = "data-codex-plus-model-group";
   /** 分组标题上的分组 id 属性。 */
@@ -93,6 +95,7 @@
           collapseAll: "全部折叠",
           groupAria: (name, count, expanded, isDefault) => `${name}${isDefault ? "（默认供应商）" : ""}，${count} 个模型，${expanded ? "已展开" : "已折叠"}`,
           groupTitle: (name, count) => `${name} · ${count}`,
+          favorite: "已收藏（在 Codex++ 里收藏的模型）",
         }
       : {
           defaultBadge: "Default",
@@ -101,6 +104,7 @@
           collapseAll: "Collapse all",
           groupAria: (name, count, expanded, isDefault) => `${name}${isDefault ? " (default provider)" : ""}, ${count} models, ${expanded ? "expanded" : "collapsed"}`,
           groupTitle: (name, count) => `${name} · ${count}`,
+          favorite: "Favorite (starred in Codex++)",
         };
   }
 
@@ -294,6 +298,16 @@
     return codexPlusModelPickerNormalizeStrict(value).replace(/^gpt-/u, "");
   }
 
+  /** 宽松归一化：忽略大小写、`gpt-` 前缀、空白以及 `-`/`_` 等分隔符。
+   * 目录里的 slug 是 `deepseek-flash`，原生行文本是 `DeepSeek Flash`，
+   * 先用严格归一化会漏掉这些别名，行就退化成 legacy 分组，同一家被切成好几段。 */
+  function codexPlusModelPickerNormalizeLoose(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/^gpt[\s_-]*/u, "")
+      .replace(/[^\p{L}\p{N}]+/gu, "");
+  }
+
   /**
    * 目录里的键和选择器里的名字不一定逐字相同。
    *
@@ -360,6 +374,49 @@
   }
 
   /**
+   * 目录里每一行“完整展示名 -> 权威归属”的精确索引。
+   *
+   * 行的原生文本就是目录的 `displayName`（带 `（供应商）` 后缀）。拿完整文本
+   * 匹配才能区分“多个成员都发布了同名上游模型”（例如三家都有
+   * `DeepSeek-V4-Pro`）的情况；只按裸模型名匹配会命中目录里第一个同名成员，
+   * 把另外两家的行并进错误的组。
+   */
+  function codexPlusModelPickerCatalogExactMap() {
+    const map = new Map();
+    const modelMetadata = codexModelCatalog?.modelMetadata || codexModelCatalog?.model_metadata;
+    if (!modelMetadata || typeof modelMetadata !== "object") return map;
+    const register = (entry) => {
+      if (!entry || typeof entry !== "object") return;
+      const displayName = entry.displayName || entry.display_name;
+      if (typeof displayName !== "string" || !displayName) return;
+      const provider = providerNameOf(entry);
+      const groupId =
+        typeof entry.codex_plus_group_id === "string" ? entry.codex_plus_group_id.trim() : "";
+      if (!provider || !groupId) return;
+      // 在 Codex++ 里收藏过的模型（网关写的 `codex_plus_favorite`）：行尾画星标。
+      const value = { provider, groupId, favorite: entry.codex_plus_favorite === true };
+      // 原文键：网关关掉「模型名后带供应商」时，同名的几份只差末尾看不见的零宽字符，
+      // 宽松归一化会把它们抹掉，必须先按原文比对。
+      const rawKey = `raw\u0000${String(displayName).replace(/\s+/g, " ").trim()}`;
+      if (!map.has(rawKey)) map.set(rawKey, value);
+      const fullKey = codexPlusModelPickerNormalizeLoose(displayName);
+      if (fullKey && !map.has(fullKey)) map.set(fullKey, value);
+      const split = codexPlusModelPickerSplitLabel(displayName);
+      if (split.name && split.provider) {
+        const pairKey = `${codexPlusModelPickerNormalizeLoose(split.name)}\u0000${codexPlusModelPickerNormalizeLoose(split.provider)}`;
+        if (!map.has(pairKey)) map.set(pairKey, value);
+      }
+    };
+    const slugList = Array.isArray(codexModelCatalog?.models)
+      ? codexModelCatalog.models.filter((slug) => typeof slug === "string" && slug)
+      : [];
+    const bySlug = new Map(Object.entries(modelMetadata));
+    for (const slug of slugList) register(bySlug.get(slug));
+    for (const entry of Object.values(modelMetadata)) register(entry);
+    return map;
+  }
+
+  /**
    * 一行的可分组身份。
    *
    * 原生结构（实测 2026-10 Codex 桌面版）：
@@ -406,6 +463,8 @@
    */
   function codexPlusModelPickerRows(list) {
     const providers = codexPlusModelPickerCatalogProviderMap();
+    const exact = codexPlusModelPickerCatalogExactMap();
+    const defaultGroupId = codexPlusModelPickerDefaultGroupId();
     const rows = [];
     const items = list.querySelectorAll('[role="menuitemradio"]');
     items.forEach((row) => {
@@ -413,16 +472,29 @@
       if (!identity?.groupable) return;
       const split = codexPlusModelPickerSplitLabel(identity.text);
       if (split.provider) codexPlusModelPickerRememberProvider(split.name, split.provider, true);
-      // 分组键：只信"行上有后缀"和"目录里的权威分组 id"这两个来源。
-      // 早期版本拿目录展示名去拟合行文本，别名一多就把模型分到了错的组（同一家被切成
-      // 好几段），所以目录查询只用来补 **分组 id**，不用来决定显示成哪一组。
-      const known = providers.get(codexPlusModelPickerNormalizeStrict(split.name))
-        || providers.get(codexPlusModelPickerNormalize(split.name));
+      // 分组键：优先用「完整展示名」或「模型名 + 后缀供应商」做精确匹配。
+      // 有后缀的行成员归属由后缀决定，不能再拿裸模型名去查目录——三家都发布
+      // `DeepSeek-V4-Pro` 时，裸名别名只会命中目录里第一个成员，把别人的
+      // 模型并进错误的组（同一家被切成好几段 / 同名分组出现多次）。
+      const pairKey = split.provider
+        ? `${codexPlusModelPickerNormalizeLoose(split.name)}\u0000${codexPlusModelPickerNormalizeLoose(split.provider)}`
+        : "";
+      const exactKnown = exact.get(`raw\u0000${identity.text}`)
+        || exact.get(codexPlusModelPickerNormalizeLoose(identity.text))
+        || (pairKey ? exact.get(pairKey) : null);
+      const known = exactKnown
+        || (!split.provider
+          ? providers.get(codexPlusModelPickerNormalizeStrict(split.name))
+            || providers.get(codexPlusModelPickerNormalize(split.name))
+          : null);
       const groupId = known?.groupId
-        || (split.provider ? split.provider : codexPlusModelPickerDefaultGroupId());
-      // 显示名按行文本：有后缀就是那一家；裸名（默认成员的模型）用默认供应商的名字。
-      const provider = split.provider || known?.provider || codexPlusModelPickerDefaultProviderName();
-      rows.push({ row, label: identity.text, name: split.name, provider, groupId });
+        || (split.provider ? `provider:${split.provider}` : defaultGroupId);
+      // 显示名：整行精确命中目录时用目录里的分组名（网关写的是打过码的完整账号名，后缀可能只是
+      // 供应商 id）；否则有后缀就是那一家；裸名（默认成员的模型）用默认供应商的名字。
+      const provider = exactKnown?.provider || split.provider || known?.provider || codexPlusModelPickerDefaultProviderName();
+      const authoritativeGroupId = !!known?.groupId
+        || (split.provider ? true : !!defaultGroupId);
+      rows.push({ row, label: identity.text, name: split.name, provider, groupId, authoritativeGroupId, favorite: exactKnown?.favorite === true });
     });
     return rows;
   }
@@ -467,23 +539,31 @@
     return best;
   }
 
-  /** 连续相同分组归为一组（同成员模型在聚合目录里本来就是连续的）。 */
+  /** 权威 groupId 全局合组；无 ID 的旧行只做相邻回退，避免同名误合并。 */
   function codexPlusModelPickerGroups(rows, defaultProviderName = "") {
     const groups = [];
-    let current = null;
+    const identified = new Map();
+    let legacy = null;
     for (const entry of rows) {
-      // 连续同显示名的行归一组；分组 id 用权威值（默认成员那组靠它才认得出来）。
       const key = entry.provider || "";
-      if (!current || current.key !== key) {
-        current = {
-          key,
-          id: entry.groupId || key,
-          name: entry.provider || (key ? "" : defaultProviderName),
-          entries: [],
-        };
-        groups.push(current);
+      const id = entry.authoritativeGroupId !== false && typeof entry.groupId === "string" ? entry.groupId.trim() : "";
+      let group;
+      if (id) {
+        legacy = null;
+        group = identified.get(id);
+        if (!group) {
+          group = { key, id, name: entry.provider || defaultProviderName, entries: [] };
+          identified.set(id, group);
+          groups.push(group);
+        }
+      } else {
+        if (!legacy || legacy.key !== key) {
+          legacy = { key, id: `legacy:${groups.length}:${key}`, name: entry.provider || defaultProviderName, entries: [] };
+          groups.push(legacy);
+        }
+        group = legacy;
       }
-      current.entries.push(entry);
+      group.entries.push(entry);
     }
     return groups;
   }
@@ -612,7 +692,8 @@
     // 行本身带归属标记：补丁装完后第二次扫描能直接认出这一行，不再重新解析结构。
     entry.row.setAttribute("data-codex-plus-ext", codexPlusModelPickerGroupsExtMark);
     const isOurs = (node) => node.classList.contains(codexPlusModelPickerOwnLabelClass)
-      || node.classList.contains(codexPlusModelPickerNativeLabelClass);
+      || node.classList.contains(codexPlusModelPickerNativeLabelClass)
+      || node.classList.contains(codexPlusModelPickerFavoriteClass);
     const native = [...inner.children].find((node) => node.classList.contains(codexPlusModelPickerNativeLabelClass))
       // 第一次进来时装的是原生标签（单个 span）
       || [...inner.children].find((node) => !isOurs(node));
@@ -631,12 +712,27 @@
       inner.insertBefore(own, native || null);
     }
     if (own.textContent !== entry.name) own.textContent = entry.name;
+    // 收藏星标跟在模型名后面；取消收藏后下一轮扫描拿掉。
+    let star = [...inner.children].find((node) => node.classList.contains(codexPlusModelPickerFavoriteClass));
+    if (entry.favorite && !star) {
+      star = document.createElement("span");
+      star.className = codexPlusModelPickerFavoriteClass;
+      star.setAttribute("data-codex-plus-ext", codexPlusModelPickerGroupsExtMark);
+      star.setAttribute("role", "img");
+      star.setAttribute("aria-label", codexPlusModelPickerText().favorite);
+      star.title = codexPlusModelPickerText().favorite;
+      star.textContent = "★";
+      inner.insertBefore(star, own.nextSibling);
+    } else if (!entry.favorite && star) {
+      star.remove();
+    }
     entry.row.classList.add(codexPlusModelPickerItemClass);
   }
 
   function codexPlusModelPickerRestoreLabel(row) {
     const content = row.querySelector("[data-menu-row-content]") || row;
     content.querySelector(`.${codexPlusModelPickerOwnLabelClass}`)?.remove();
+    content.querySelector(`.${codexPlusModelPickerFavoriteClass}`)?.remove();
     const native = content.querySelector(`.${codexPlusModelPickerNativeLabelClass}`);
     if (native) {
       native.classList.remove(codexPlusModelPickerNativeLabelClass);
@@ -863,12 +959,15 @@
       .codex-plus-model-group-header:focus-visible{outline:1px solid color-mix(in srgb,var(--color-token-text-primary,#dfdfdf) 35%,transparent);outline-offset:1px}
       .codex-plus-model-group-chevron{flex:0 0 auto;width:12px;height:12px;opacity:.75;transform:rotate(90deg);transition:transform .15s ease}
       .codex-plus-model-group-header-collapsed .codex-plus-model-group-chevron{transform:rotate(0deg)}
-      .codex-plus-model-group-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .codex-plus-model-group-count{flex:0 0 auto;margin-left:auto;padding:0 6px;border-radius:999px;background:var(--color-token-bg-secondary,rgba(255,255,255,.06));color:var(--color-token-text-secondary,rgba(205,205,215,.75));font-size:10px;font-weight:500;font-variant-numeric:tabular-nums}
+      /* 标题撑满剩余空间，把「默认」徽标与计数挤到右端。不要用 margin-left:auto 推计数：
+         那一行多出徽标时 auto 外边距会被吃掉，数字就跟在徽标后面，与其它行不对齐。 */
+      .codex-plus-model-group-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .codex-plus-model-group-count{flex:0 0 auto;padding:0 6px;border-radius:999px;background:var(--color-token-bg-secondary,rgba(255,255,255,.06));color:var(--color-token-text-secondary,rgba(205,205,215,.75));font-size:10px;font-weight:500;font-variant-numeric:tabular-nums}
       /* 「默认」标志：默认成员的模型是裸名发布的，跟"另一家没起名的成员"看名字分不出来。
          用主题强调色描边小标签，比再加一句解释文字省地方。 */
       .codex-plus-model-group-default{flex:0 0 auto;padding:0 5px;border:1px solid color-mix(in srgb,var(--color-token-text-primary,#dfdfdf) 26%,transparent);border-radius:999px;color:var(--color-token-text-primary,#dfdfdf);font-size:10px;line-height:14px;font-weight:500;letter-spacing:.02em}
-      .codex-plus-model-group-default + .codex-plus-model-group-count{margin-left:4px}
+      /* 徽标紧贴计数左侧时留一点缝（默认 gap 是 6px，这里收紧一点看起来更像一组）。 */
+      .codex-plus-model-group-default + .codex-plus-model-group-count{margin-left:-2px}
       .codex-plus-model-group-toolbar{display:flex;align-items:center;gap:8px;box-sizing:border-box;padding:2px 8px 4px}
       .codex-plus-model-group-toolbar-button{margin-left:auto;border:0;border-radius:6px;background:none;padding:2px 6px;color:var(--color-token-text-secondary,rgba(205,205,215,.8));font:inherit;font-size:11px;cursor:pointer;appearance:none}
       .codex-plus-model-group-toolbar-button:hover{background:var(--color-token-bg-secondary,rgba(255,255,255,.04));color:var(--color-token-text-primary,#dfdfdf)}
@@ -876,6 +975,7 @@
       [role="menuitemradio"].codex-plus-model-group-collapsed{display:none!important}
       .${codexPlusModelPickerNativeLabelClass}{display:none!important}
       .${codexPlusModelPickerOwnLabelClass}{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .${codexPlusModelPickerFavoriteClass}{flex:none;margin-left:6px;color:#f5b94a;font-size:12px;line-height:1}
     `;
     document.head?.appendChild(style);
   }

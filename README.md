@@ -8,7 +8,7 @@
 
 CanvasPro 的修改限于默认 API 供应商、填写 Key 后保存并启动的入口、已核对的文本模型预设和定制版发布资料。本仓库由 [Namm-star](https://github.com/Namm-star) 维护，与上游独立；不代表原作者对 CanvasPro 服务的背书。保留上游版权、[AGPL-3.0-only 许可证](LICENSE)和[第三方声明](THIRD_PARTY_NOTICES.md)，具体来源及改动见 [ATTRIBUTION.md](ATTRIBUTION.md)。
 
-后续开发与发布请先读 [开发记录](docs/development/CANVASPRO_HISTORY.md)、[维护手册](docs/development/CANVASPRO_MAINTENANCE.md) 和 [当前发布基线](docs/development/releases/v1.9.0-canvaspro.1.provenance.json)。[首发记录](docs/development/releases/v1.5.0-canvaspro.1.provenance.json) 保留供历史核对。
+后续开发与发布请先读 [开发记录](docs/development/CANVASPRO_HISTORY.md)、[维护手册](docs/development/CANVASPRO_MAINTENANCE.md) 和 [当前发布基线](docs/development/releases/v2.1.1-canvaspro.1.provenance.json)。[首发记录](docs/development/releases/v1.5.0-canvaspro.1.provenance.json) 保留供历史核对。
 
 **定制版下载：[CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**。本定制版的使用问题、API 接入和建议，请通过下方「交流与支持」联系 CanvasPro，或提交到[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)。
 
@@ -74,17 +74,18 @@ CanvasPro 定制版的使用、API Key、余额和模型接入问题，请加入
 
 使用微信扫描下方二维码；在电脑上浏览时，可用手机微信扫一扫，或保存图片后在微信中识别二维码。
 
-<img src="docs/images/canvaspro-support-group-20261015.png" alt="画布&amp;api服务群微信二维码" width="320">
+<img src="docs/images/canvaspro-support-group-20261029.png" alt="画布&amp;api服务群微信二维码" width="320">
 
-二维码更新于 **2026 年 10 月 15 日**，截图标注有效期至 **2026 年 10 月 22 日前**。若二维码失效，请通过[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)获取最新入群方式。
+二维码更新于 **2026 年 10 月 29 日**，截图标注有效期至 **2026 年 11 月 5 日前**。若二维码失效，请通过[本仓库 Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues)获取最新入群方式。
 
 提交问题时请说明操作系统、安装包版本、选择的模型和错误提示；不要附带完整 API Key。
 
 ## 本次同步
 
-当前发布版本为 **[v1.9.0-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v1.9.0-canvaspro.1)**，基于上游 v1.9.0，提供 Windows x64 安装包、Mac universal DMG、完整源码及校验清单。
+本次更新版本为 **[v2.1.1-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.1.1-canvaspro.1)**，基于上游 v2.1.1，提供 Windows x64 安装包、Mac universal DMG、完整源码及校验清单。
 
 - 同步新版 Codex 的模型目录、Responses 协议、工具调用与供应商配置修复。
+- 同步 v2.1.1 的网关与供应商池、旧版 Mac 黑屏和 Codex 26.10 兼容修复；总览首页保留 CanvasPro 填 Key 即用的入口。
 - 跟进模型聚合、官方账号成员、Codex 多开、用量状态栏及上游其他增强。
 - 采用统一应用与 Mac 双架构通用包，保留旧版本配置和升级迁移。
 - 默认仍为 CanvasPro；填自己的 Key 后保存并启动。更新检查与下载已改为本定制仓库，并支持同一上游版本的 CanvasPro 修订号升级。

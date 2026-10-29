@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::Context;
+use sha2::{Digest, Sha256};
 use serde_json::{json, Map, Value};
 
 use crate::model_suffix::{
@@ -64,7 +65,7 @@ pub fn active_model_bindings(
     };
     let mut bindings = Vec::new();
     for relay in member_profiles(settings, &aggregate)? {
-        for entry in profile_catalog_entries(relay)? {
+        for entry in member_upstream_catalog_entries(relay)? {
             bindings.push(AggregateModelBinding {
                 catalog_model: aggregate_model_id(&relay.id, &entry.slug),
                 relay_id: relay.id.clone(),
@@ -117,7 +118,7 @@ pub fn resolve_active_model(
             anyhow::bail!("聚合成员「{}」当前不可用：成员供应商不存在", member.name);
         };
         let relay = &settings.relay_profiles[relay_index];
-        if let Some(upstream_model) = profile_catalog_entries(relay)?
+        if let Some(upstream_model) = member_upstream_catalog_entries(relay)?
             .into_iter()
             .find(|entry| aggregate_model_id(&relay.id, &entry.slug) == catalog_model)
             .map(|entry| entry.slug)
@@ -195,6 +196,90 @@ fn resolve_by_default_provider(
     }))
 }
 
+/// Codex 自动审批（「替我审批」）请求使用的固定模型 slug。
+pub const CODEX_AUTO_REVIEW_MODEL: &str = "codex-auto-review";
+
+/// 写进 Codex 模型目录的 `visibility`：审批模型只给「替我审批」内部用，和官方目录一样
+/// 标成 `hide`，不进 Codex 的模型选择器；`<供应商 id>/codex-auto-review` 同样隐藏。
+pub fn catalog_visibility(slug: &str) -> &'static str {
+    let slug = slug.trim();
+    let is_review = slug.eq_ignore_ascii_case(CODEX_AUTO_REVIEW_MODEL)
+        || slug
+            .rsplit_once('/')
+            .is_some_and(|(_, model)| model.eq_ignore_ascii_case(CODEX_AUTO_REVIEW_MODEL));
+    if is_review {
+        "hide"
+    } else {
+        "list"
+    }
+}
+
+/// 聚合的「审批成员」（#2703）：活动聚合（按模型聚合或轮转池都算）指定了审批成员时，
+/// `codex-auto-review` 只交给这个成员，模型取它的「自动审批模型」，没填用它的默认模型
+/// （第三方上游不认识 codex-auto-review，原样转发只会报错）。
+///
+/// 未设置或请求不是审批请求时返回 Ok(None)，调用方照原有规则路由。
+/// 设置了但成员不可用（被移出成员、供应商被删、未就绪）时硬报错：
+/// 用户指定审批成员就是不想让审批落到别的成员（例如官方登录）上，不能静默回落。
+pub fn resolve_auto_review_member(
+    settings: &BackendSettings,
+    requested: &str,
+) -> anyhow::Result<Option<AggregateModelBinding>> {
+    if requested.trim() != CODEX_AUTO_REVIEW_MODEL {
+        return Ok(None);
+    }
+    let Some(aggregate) = settings.active_aggregate_relay_profile() else {
+        return Ok(None);
+    };
+    let relay_id = aggregate.auto_review_relay_id.trim();
+    if relay_id.is_empty() {
+        return Ok(None);
+    }
+    if !aggregate
+        .members
+        .iter()
+        .any(|member| member.relay_id == relay_id)
+    {
+        anyhow::bail!(
+            "聚合的审批成员（{relay_id}）已不是聚合成员：请到聚合供应商里重新选择审批成员，或清空让审批请求按原规则路由"
+        );
+    }
+    let Some(relay) = settings
+        .relay_profiles
+        .iter()
+        .find(|relay| relay.id == relay_id)
+    else {
+        anyhow::bail!("聚合的审批成员当前不可用：成员供应商不存在（{relay_id}），请检查聚合配置");
+    };
+    if !crate::relay_rotation::member_relay_ready(relay) {
+        anyhow::bail!(
+            "聚合的审批成员「{}」当前不可用：需要可用的 API 地址与认证配置，或完成官方登录",
+            relay.name
+        );
+    }
+    let configured = relay.auto_review_model.trim();
+    let upstream_model = if configured.is_empty() {
+        crate::relay_config::relay_profile_model(relay)
+            .trim()
+            .to_string()
+    } else {
+        configured.to_string()
+    };
+    if upstream_model.is_empty() {
+        anyhow::bail!(
+            "聚合的审批成员「{}」没有可用的模型：请给它填写「自动审批模型」或默认模型",
+            relay.name
+        );
+    }
+    // 不记诊断日志：请求日志里已有成员与上游模型，逐请求记录只会把诊断文件刷大（#2681）。
+    Ok(Some(AggregateModelBinding {
+        catalog_model: requested.trim().to_string(),
+        relay_id: relay.id.clone(),
+        upstream_model,
+        relay: relay.clone(),
+    }))
+}
+
 /// 默认供应商配置有效（指向当前成员）时，解析不到的模型名都能兜底转发；
 /// 供「最近使用」模型清理判断：此时任何目录外的名字都还有可能被服务，不再按目录清理。
 pub fn default_backs_unbound_models(aggregate: &AggregateRelayProfile) -> bool {
@@ -250,6 +335,31 @@ fn member_model_prefix(relay_id: &str) -> String {
     aggregate_model_id(relay_id, "")
 }
 
+/// 从聚合目录复制的模型 ID 先去掉本成员的一层前缀；跨成员引用保持原样。
+fn strip_member_model_prefix(relay_id: &str, value: &str) -> String {
+    value
+        .strip_prefix(member_model_prefix(relay_id).as_str())
+        .filter(|rest| !rest.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
+}
+
+/// 请求解析和绑定列表必须使用与发布目录相同的上游 slug，否则目录中的单层 ID
+/// 会因原始条目仍带本成员前缀而无法解析。保留原始读取入口，供目录先按原配置键
+/// 应用窗口和元数据，再归一化身份，避免已有覆盖配置失效。
+fn member_upstream_catalog_entries(
+    profile: &RelayProfile,
+) -> anyhow::Result<Vec<ModelCatalogEntry>> {
+    let mut seen = HashSet::new();
+    Ok(profile_catalog_entries(profile)?
+        .into_iter()
+        .filter_map(|mut entry| {
+            entry.slug = strip_member_model_prefix(&profile.id, &entry.slug);
+            (!entry.slug.is_empty() && seen.insert(entry.slug.clone())).then_some(entry)
+        })
+        .collect())
+}
+
 fn aggregate_member_availability(
     settings: &BackendSettings,
     aggregate: &AggregateRelayProfile,
@@ -287,9 +397,21 @@ fn aggregate_member_availability(
 pub(crate) fn profile_catalog_entries(
     profile: &RelayProfile,
 ) -> anyhow::Result<Vec<ModelCatalogEntry>> {
+    profile_catalog_entries_with_home(profile, &crate::codex_home::default_codex_home_dir())
+}
+
+fn profile_catalog_entries_with_home(
+    profile: &RelayProfile,
+    codex_home: &Path,
+) -> anyhow::Result<Vec<ModelCatalogEntry>> {
     let mut windows = parse_string_map(&profile.model_windows, "model_windows")?;
     validate_windows(&windows, "model_windows")?;
-    let (list, suffix_windows) = migrate_model_list_with_suffixes(&profile.model_list);
+    let model_list = if uses_official_model_directory(profile) {
+        official_directory_models(codex_home).join("\n")
+    } else {
+        profile.model_list.clone()
+    };
+    let (list, suffix_windows) = migrate_model_list_with_suffixes(&model_list);
     for (slug, window) in suffix_windows {
         windows.entry(slug).or_insert(window);
     }
@@ -301,6 +423,50 @@ pub(crate) fn profile_catalog_entries(
         &compact,
         &crate::relay_config::relay_profile_model(profile),
     ))
+}
+
+/// 官方登录成员一个模型都没填（模型列表和默认模型都空）：按 Codex 自己的官方模型目录发布（#2763）。
+/// 「系统默认」是从本机 config.toml 导入的，导入时 Codex 没在里面写 `model` 的话
+/// 它的模型列表就是空的，聚合里这一家一个模型都发布不出来，选择器里只看得到别的成员。
+fn uses_official_model_directory(profile: &RelayProfile) -> bool {
+    crate::official_login::is_official_login_profile(profile)
+        && profile.model_list.trim().is_empty()
+        && crate::relay_config::relay_profile_model(profile).trim().is_empty()
+}
+
+/// 本机 Codex 为登录的 ChatGPT 账号缓存的官方模型目录（`models_cache.json`）里列出的模型；
+/// 标成隐藏的（如自动审批模型）不算。读不到缓存时为空，保持「请填写模型列表」的原状。
+fn official_directory_models(codex_home: &Path) -> Vec<String> {
+    let Some(cache) = std::fs::read_to_string(codex_home.join("models_cache.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+    else {
+        return Vec::new();
+    };
+    let mut models: Vec<String> = Vec::new();
+    for entry in cache
+        .get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(slug) = entry
+            .get("slug")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|slug| !slug.is_empty())
+        else {
+            continue;
+        };
+        let listed = entry
+            .get("visibility")
+            .and_then(Value::as_str)
+            .is_none_or(|visibility| visibility.is_empty() || visibility == "list");
+        if listed && !models.iter().any(|known| known == slug) {
+            models.push(slug.to_string());
+        }
+    }
+    models
 }
 
 /// 每个成员只构建一次目录，然后修改身份字段；先按真实模型应用元数据，
@@ -323,12 +489,25 @@ pub fn build_catalog_json(
         } else {
             relay.name.trim().to_string()
         };
+        // 成员自己的模型 ID 前缀：成员列表里若出现 `cpx-<自己>/kimi-k3`（从聚合目录复制
+        // 来的模型名很常见），再套一层前缀就会变成 `cpx-<自己>/cpx-<自己>/kimi-k3`——
+        // 两层前缀直接露在客户端列表里。这里先剥掉成员自己的那一层。
+        // 剥掉自指前缀后可能撞车：`model` 写 `cpx-<自己>/kimi-k3`、`model_list` 又写了裸名
+        // `kimi-k3`，两条会归一成同一个上游模型。按上游 slug 去重，保留先出现的那条
+        // （`model` 在列表最前，与目录原本的优先级一致）。
+        let mut seen_upstream = HashSet::new();
         for mut model in payload["models"].as_array().into_iter().flatten().cloned() {
-            let upstream = model["slug"].as_str().unwrap_or_default().to_string();
-            let display = model["display_name"]
-                .as_str()
-                .unwrap_or(&upstream)
-                .to_string();
+            let upstream = strip_member_model_prefix(
+                &relay.id,
+                model["slug"].as_str().unwrap_or_default(),
+            );
+            if upstream.is_empty() || !seen_upstream.insert(upstream.clone()) {
+                continue;
+            }
+            let display = {
+                let raw = model["display_name"].as_str().unwrap_or(&upstream).to_string();
+                strip_member_model_prefix(&relay.id, &raw)
+            };
             model["slug"] = if is_default_member {
                 json!(upstream)
             } else {
@@ -351,12 +530,16 @@ pub fn build_catalog_json(
             model["codex_plus_group_id"] = json!(relay.id);
             if is_default_member {
                 model["codex_plus_default"] = json!(true);
+            } else if let Some(model) = model.as_object_mut() {
+                model.remove("codex_plus_default");
             }
             model["comp_hash"] = json!("codex-plus-aggregate");
             // 聚合会切换上游；经典子代理任务使用明文，避免跨成员解密失败。
             model["multi_agent_version"] = json!("v1");
             model["use_responses_lite"] = json!(false);
-            model["visibility"] = json!("list");
+            model["visibility"] = json!(catalog_visibility(
+                model["slug"].as_str().unwrap_or_default()
+            ));
             model["priority"] = json!(1000 + models.len());
             models.push(model);
         }
@@ -384,13 +567,237 @@ pub fn build_catalog_for_profile(profile: &RelayProfile) -> anyhow::Result<Optio
     Ok(Some(build_catalog_json(&settings, aggregate)?))
 }
 
+fn aggregate_publication_key(id: &str) -> String {
+    format!("{:x}", Sha256::digest(id.as_bytes()))[..16].to_string()
+}
+
+fn refresh_journal_path(home: &Path, aggregate: &str) -> std::path::PathBuf {
+    home.join("model-catalogs").join(format!(
+        "refresh-{}.json",
+        aggregate_publication_key(aggregate)
+    ))
+}
+
+fn owned_catalog_path(home: &Path, aggregate: &str, pointer: &str) -> Option<std::path::PathBuf> {
+    let path = std::path::PathBuf::from(pointer);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        home.join(path)
+    };
+    let path = path.canonicalize().ok()?;
+    let root = home.join("model-catalogs").canonicalize().ok()?;
+    if path.parent()? != root || !path.is_file() {
+        return None;
+    }
+    let name = path.file_name()?.to_str()?;
+    let legacy = format!(
+        "{}.json",
+        crate::relay_config::sanitize_catalog_filename(aggregate)
+    );
+    let prefix = format!("aggregate-{}-", aggregate_publication_key(aggregate));
+    (name == legacy || (name.starts_with(&prefix) && name.ends_with(".json"))).then_some(path)
+}
+
+/// 聚合目录的指针写法必须和单供应商一致：原生 Windows 写绝对路径（#2529），
+/// WSL 写共享 home 下的相对路径（#2591）。聚合发布与崩溃恢复都走这里。
+fn aggregate_catalog_pointer(home: &Path, catalog: &Path, config: &str) -> anyhow::Result<String> {
+    let relative = catalog
+        .strip_prefix(home)
+        .unwrap_or(catalog)
+        .to_string_lossy()
+        .to_string();
+    crate::relay_config::managed_catalog_pointer(home, &relative, config)
+}
+
+fn config_catalog_pointer(config: &str) -> Option<String> {
+    config
+        .parse::<toml_edit::DocumentMut>()
+        .ok()?
+        .get("model_catalog_json")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// 在读取/保存入口恢复崩溃时已提交 settings、尚未发布的目录。不会覆盖外部改动。
+pub fn recover_pending_catalog_refresh(store: &SettingsStore, home: &Path) -> anyhow::Result<bool> {
+    let settings = store.load()?;
+    let Some(aggregate) = active_model_aggregation(&settings) else {
+        return Ok(false);
+    };
+    let journal = refresh_journal_path(home, &aggregate.id);
+    let text = match std::fs::read_to_string(&journal) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    let Ok(mut pending) = serde_json::from_str::<Value>(&text) else {
+        return Ok(false);
+    };
+    if !matches!(
+        pending["status"].as_str(),
+        Some("prepared" | "settings_committed")
+    ) || pending["settingsRevision"].as_str() != Some(settings.settings_revision.as_str())
+        || pending["aggregateId"].as_str() != Some(aggregate.id.as_str())
+    {
+        return Ok(false);
+    }
+    store.with_current_revision(&settings.settings_revision, || {
+        let Some(path) = pending["catalogPath"]
+            .as_str()
+            .and_then(|p| owned_catalog_path(home, &aggregate.id, p))
+        else {
+            return Ok(false);
+        };
+        let catalog = std::fs::read_to_string(&path)?;
+        crate::relay_config::validate_managed_model_catalog(&catalog)?;
+        if pending["catalogHash"].as_str()
+            != Some(format!("{:x}", Sha256::digest(catalog.as_bytes())).as_str())
+        {
+            return Ok(false);
+        }
+        let config_path = home.join("config.toml");
+        let config = std::fs::read_to_string(&config_path)?;
+        let already_published = config_catalog_pointer(&config)
+            .and_then(|pointer| owned_catalog_path(home, &aggregate.id, &pointer))
+            == Some(path.clone());
+        if !already_published {
+            if pending["previousConfigHash"].as_str()
+                != Some(format!("{:x}", Sha256::digest(config.as_bytes())).as_str())
+            {
+                pending["status"] = json!("external_config_changed");
+                crate::settings::atomic_write(&journal, &serde_json::to_vec_pretty(&pending)?)?;
+                return Ok(false);
+            }
+            let mut doc: toml_edit::DocumentMut = config.parse()?;
+            let pointer = aggregate_catalog_pointer(home, &path, &config)?;
+            doc["model_catalog_json"] = toml_edit::value(pointer);
+            crate::settings::atomic_write(&config_path, doc.to_string().as_bytes())?;
+        }
+        pending["status"] = json!("completed");
+        crate::settings::atomic_write(&journal, &serde_json::to_vec_pretty(&pending)?)?;
+        Ok(true)
+    })
+}
+
+/// 成员编辑只发布新的不可变目录及配置指针，不执行供应商切换或重启。
+pub fn save_with_active_catalog_refresh(
+    store: &SettingsStore,
+    home: &Path,
+    next: &BackendSettings,
+) -> anyhow::Result<String> {
+    save_with_catalog_publisher(store, home, next, |path, content| {
+        crate::settings::atomic_write(path, content)
+    })
+}
+
+fn save_with_catalog_publisher(
+    store: &SettingsStore,
+    home: &Path,
+    next: &BackendSettings,
+    publish: impl FnOnce(&Path, &[u8]) -> anyhow::Result<()>,
+) -> anyhow::Result<String> {
+    recover_pending_catalog_refresh(store, home)?;
+    let previous = store.load()?;
+    let Some(aggregate) = active_model_aggregation(next) else {
+        return store.save_versioned(next);
+    };
+    if !next.relay_profiles_enabled
+        || previous.active_relay_id != next.active_relay_id
+        || previous.active_aggregate_relay_id != next.active_aggregate_relay_id
+    {
+        return store.save_versioned(next);
+    }
+    let catalog = build_catalog_json(next, &aggregate)?;
+    crate::relay_config::validate_managed_model_catalog(&catalog)?;
+    let config_path = home.join("config.toml");
+    let config = match std::fs::read_to_string(&config_path) {
+        Ok(config) => config,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return store.save_versioned(next);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let Some(pointer) = config_catalog_pointer(&config)
+        .and_then(|pointer| owned_catalog_path(home, &aggregate.id, &pointer))
+    else {
+        return store.save_versioned(next);
+    };
+    if std::fs::read_to_string(&pointer)? == catalog {
+        return store.save_versioned(next);
+    }
+    let digest = format!("{:x}", Sha256::digest(catalog.as_bytes()));
+    let staged = home.join("model-catalogs").join(format!(
+        "aggregate-{}-{digest}.json",
+        aggregate_publication_key(&aggregate.id)
+    ));
+    let journal = refresh_journal_path(home, &aggregate.id);
+    let write_journal = |status: &str, revision: &str| -> anyhow::Result<()> {
+        crate::settings::atomic_write(
+            &journal,
+            &serde_json::to_vec_pretty(&json!({
+                "status": status, "settingsRevision": revision, "aggregateId": aggregate.id,
+                "catalogPath": std::path::absolute(&staged)?, "catalogHash": digest,
+                "previousConfigHash": format!("{:x}", Sha256::digest(config.as_bytes())),
+            }))?,
+        )
+    };
+    let mut doc: toml_edit::DocumentMut = config.parse()?;
+    let pointer = aggregate_catalog_pointer(home, &staged, &config)?;
+    doc["model_catalog_json"] = toml_edit::value(pointer);
+    let result = store.save_with_prepared_commit(
+        next,
+        |revision| {
+            if std::fs::read_to_string(&config_path)? != config {
+                anyhow::bail!("实时配置已变更，未准备目录发布");
+            }
+            if staged.exists() {
+                anyhow::ensure!(
+                    std::fs::read(&staged)? == catalog.as_bytes(),
+                    "不可变目录内容与哈希不一致"
+                );
+            } else {
+                crate::settings::atomic_write(&staged, catalog.as_bytes())?;
+            }
+            write_journal("prepared", revision)
+        },
+        |revision| {
+            anyhow::ensure!(store.revision()? == revision, "目录发布前设置已被外部修改");
+            write_journal("settings_committed", revision)?;
+            if std::fs::read_to_string(&config_path)? != config {
+                anyhow::bail!("实时配置已被其他操作修改，未发布目录指针");
+            }
+            publish(&config_path, doc.to_string().as_bytes())
+        },
+    );
+    match result {
+        Ok(revision) => {
+            let _ = write_journal("completed", &revision);
+            Ok(revision)
+        }
+        // prepare 未执行时（例如 CAS 冲突）不能在锁外覆盖其他事务的 journal。
+        // 已 prepare 但发布失败时 settings 会回滚，目标 revision 不匹配即可阻止恢复。
+        Err(error) => Err(error),
+    }
+}
 /// 注入层读取与原生 Codex 相同的目录条目，显示名与能力仍属于对应成员。
 pub fn catalog_summary(
     home: &Path,
     settings: &BackendSettings,
     aggregate: &AggregateRelayProfile,
 ) -> anyhow::Result<Value> {
-    let payload: Value = serde_json::from_str(&build_catalog_json(settings, aggregate)?)?;
+    let config = std::fs::read_to_string(home.join("config.toml")).unwrap_or_default();
+    let published = config_catalog_pointer(&config)
+        .and_then(|pointer| owned_catalog_path(home, &aggregate.id, &pointer))
+        .and_then(|path| std::fs::read_to_string(path).ok());
+    let applied = published.is_some();
+    // 不急切求值候选目录：即使当前编辑无效，已发布的安全快照仍然可展示。
+    let desired = build_catalog_json(settings, aggregate);
+    let pending_changes = published.as_ref().is_some_and(|catalog| desired.as_ref().ok() != Some(catalog));
+    let payload: Value = match published {
+        Some(catalog) => serde_json::from_str(&catalog)?,
+        None => serde_json::from_str(&desired?)?,
+    };
     let mut metadata = Map::new();
     let models = payload["models"]
         .as_array()
@@ -409,7 +816,9 @@ pub fn catalog_summary(
         .find(|profile| profile.id == aggregate.id)
         .context("聚合供应商不存在")?;
     Ok(json!({
-        "status": "ok",
+        "status": if applied { "ok" } else { "not_applied" },
+        "applied": applied,
+        "pending_changes": pending_changes,
         "path": home.join("config.toml").to_string_lossy(),
         "service_tier": Value::Null,
         "model": ids.first().cloned().unwrap_or_default(),
@@ -417,7 +826,10 @@ pub fn catalog_summary(
         "codex_model_provider": crate::model_catalog::codex_model_provider_for_relay_profile(home, profile),
         "provider_name": aggregate.name,
         // 默认成员的 relay id：模型选择器用它给默认那一组打「默认」标志。
-        "codex_plus_default_group_id": aggregate.default_relay_id.trim(),
+        "codex_plus_default_group_id": if applied {
+            models.iter().find(|model| model["codex_plus_default"].as_bool() == Some(true))
+                .and_then(|model| model["codex_plus_group_id"].as_str()).unwrap_or("")
+        } else { aggregate.default_relay_id.trim() },
         "default_model": ids.first().cloned().unwrap_or_default(),
         "models": ids,
         "modelMetadata": metadata,
@@ -434,14 +846,21 @@ pub fn catalog_summary(
     }))
 }
 
-fn build_member_catalog(profile: &RelayProfile) -> anyhow::Result<Value> {
+pub(crate) fn build_member_catalog(profile: &RelayProfile) -> anyhow::Result<Value> {
     let entries = profile_catalog_entries(profile)?;
     if entries.is_empty() {
         return Ok(json!({ "models": [] }));
     }
     let fallback = parse_window_token(&profile.context_window);
-    let catalog_json =
-        build_model_catalog_json_with_capabilities(&entries, fallback, None, Some(false), false);
+    // 聚合不适用供应商级 Multi-Agent 选择（#2683）：成员可能跨上游，保持钉 v1。
+    let catalog_json = build_model_catalog_json_with_capabilities(
+        &entries,
+        fallback,
+        None,
+        Some(false),
+        false,
+        None,
+    );
     let metadata = crate::relay_config::parse_model_metadata_map(&profile.model_metadata)?;
     let catalog_json =
         crate::relay_config::apply_model_metadata_overrides(&catalog_json, &metadata)?;
@@ -520,13 +939,25 @@ pub fn multi_agent_v2_enabled(config_text: &str) -> bool {
     })
 }
 
-/// 模型聚合处于活动状态、且用户用 `[features] multi_agent_v2` 覆盖了经典子代理设置时，
-/// 返回一条可展示给管理器的提示；无冲突或读取失败时返回 None。
+/// 用户配置与 `[features] multi_agent_v2` 冲突时返回一条可展示给管理器的提示；
+/// 无冲突或读取失败时返回 None。覆盖两类场景：
+/// - 模型聚合活动时被闸门覆盖经典子代理设置（原有行为）；
+/// - 普通供应商显式选择 v1（#2683）后被闸门重新打开——切换时 Codex++ 已写
+///   `multi_agent_v2 = false` 压闸，这里捕捉之后用户手改或 Codex 回写的漂移。
 pub fn subagent_conflict_warning(home: &Path, settings: &BackendSettings) -> Option<String> {
-    active_model_aggregation(settings)?;
     let config_text = std::fs::read_to_string(home.join("config.toml")).ok()?;
+    if active_model_aggregation(settings).is_some() {
+        return multi_agent_v2_enabled(&config_text).then(|| {
+            "检测到 config.toml 已启用 [features] multi_agent_v2：它优先于模型聚合目录中的经典子代理设置，跨供应商的子代理任务可能报无法解密。如遇到该问题，请移除或关闭该项，或让子代理与主代理使用同一供应商的模型。"
+                .to_string()
+        });
+    }
+    let profile = settings.active_relay_profile();
+    if profile.multi_agent.trim() != "v1" {
+        return None;
+    }
     multi_agent_v2_enabled(&config_text).then(|| {
-        "检测到 config.toml 已启用 [features] multi_agent_v2：它优先于模型聚合目录中的经典子代理设置，跨供应商的子代理任务可能报无法解密。如遇到该问题，请移除或关闭该项，或让子代理与主代理使用同一供应商的模型。"
+        "当前供应商已显式选择 Multi-Agent 协议 v1，但 config.toml 里 [features] multi_agent_v2 处于开启状态：它会覆盖目录中的 v1 声明，子代理任务可能无法与第三方上游通信。请关闭该项，或重新保存一次该供应商让 Codex++ 自动压下闸门。"
             .to_string()
     })
 }
@@ -535,6 +966,51 @@ pub fn subagent_conflict_warning(home: &Path, settings: &BackendSettings) -> Opt
 mod tests {
     use super::*;
     use crate::settings::{AggregateRelayMember, AggregateRelayStrategy, RelayMode};
+
+    fn publication_fixture() -> (tempfile::TempDir, SettingsStore, std::path::PathBuf) {
+        let temp=tempfile::tempdir().unwrap();let store=SettingsStore::new(temp.path().join("settings.json"));
+        store.save(&settings()).unwrap();let loaded=store.load().unwrap();let aggregate=active_model_aggregation(&loaded).unwrap();
+        let home=temp.path().join("home");std::fs::create_dir_all(home.join("model-catalogs")).unwrap();
+        let path=home.join("model-catalogs/agg.json");std::fs::write(&path,build_catalog_json(&loaded,&aggregate).unwrap()).unwrap();
+        std::fs::write(home.join("config.toml"),format!("model_catalog_json = {:?}\n",path.to_str().unwrap())).unwrap();
+        (temp,store,home)
+    }
+
+    #[test]
+    fn catalog_publication_failure_restores_settings_and_keeps_old_pointer() {
+        let (_temp,store,home)=publication_fixture();let before=store.snapshot_raw_bytes().unwrap().unwrap();
+        let config=std::fs::read(home.join("config.toml")).unwrap();let mut next=store.load().unwrap();next.relay_profiles[0].model_list.push_str("\nnew-fixture-model");
+        let error=save_with_catalog_publisher(&store,&home,&next,|_,_|anyhow::bail!("injected publication failure")).unwrap_err();
+        assert!(error.to_string().contains("发布失败"));assert_eq!(store.snapshot_raw_bytes().unwrap().unwrap(),before);
+        assert_eq!(std::fs::read(home.join("config.toml")).unwrap(),config);
+        assert!(!recover_pending_catalog_refresh(&store,&home).unwrap());
+    }
+
+    #[test]
+    fn prepared_catalog_recovers_after_settings_commit_but_respects_external_config_changes() {
+        for external_change in [false,true] {
+            let (_temp,store,home)=publication_fixture();let mut next=store.load().unwrap();next.relay_profiles[0].model_list.push_str("\nnew-fixture-model");
+            let aggregate=active_model_aggregation(&next).unwrap();let catalog=build_catalog_json(&next,&aggregate).unwrap();
+            let digest=format!("{:x}",Sha256::digest(catalog.as_bytes()));let staged=home.join("model-catalogs").join(format!("aggregate-{}-{digest}.json",aggregate_publication_key(&aggregate.id)));
+            let config=std::fs::read_to_string(home.join("config.toml")).unwrap();let journal=refresh_journal_path(&home,&aggregate.id);
+            // 人工构造实际崩溃窗口：prepare已落盘、settings已提交，publish尚未执行。
+            store.save_with_prepared_commit(&next,|revision| {
+                std::fs::write(&staged,&catalog)?;
+                std::fs::write(&journal,serde_json::to_vec(&json!({"status":"prepared","aggregateId":aggregate.id,
+                    "settingsRevision":revision,"catalogPath":staged,"catalogHash":digest,
+                    "previousConfigHash":format!("{:x}",Sha256::digest(config.as_bytes()))}))?)?;
+                Ok(())
+            },|_|Ok(())).unwrap();
+            if external_change {std::fs::write(home.join("config.toml"),format!("{config}external_setting = true\n")).unwrap();}
+            let before_recovery=std::fs::read(home.join("config.toml")).unwrap();
+            assert_eq!(recover_pending_catalog_refresh(&store,&home).unwrap(),!external_change);
+            if external_change {assert_eq!(std::fs::read(home.join("config.toml")).unwrap(),before_recovery);}
+            else {
+                assert_eq!(config_catalog_pointer(&std::fs::read_to_string(home.join("config.toml")).unwrap()),Some(staged.canonicalize().unwrap().to_string_lossy().to_string()));
+                assert!(!recover_pending_catalog_refresh(&store,&home).unwrap());
+            }
+        }
+    }
 
     fn settings() -> BackendSettings {
         let mut settings = BackendSettings::default();
@@ -573,6 +1049,7 @@ mod tests {
             session_provider: crate::settings::RelaySessionProvider::Custom,
             model_aggregation_enabled: true,
             sync_default_member_login: false,
+            auto_review_relay_id: String::new(),
             strategy: AggregateRelayStrategy::Failover,
             members: vec![
                 AggregateRelayMember {
@@ -816,6 +1293,31 @@ mod tests {
         assert_eq!(binding.upstream_model, "deepseek-reasoner");
     }
 
+    /// #2703：审批成员只接 codex-auto-review；未设置时不接管；成员未就绪时点名报错，不回落。
+    #[test]
+    fn auto_review_member_only_takes_review_requests() {
+        let mut settings = settings();
+        assert!(resolve_auto_review_member(&settings, "codex-auto-review").unwrap().is_none());
+
+        settings.aggregate_relay_profiles[0].auto_review_relay_id = "deepseek".to_string();
+        assert!(resolve_auto_review_member(&settings, "deepseek-reasoner").unwrap().is_none());
+        let binding = resolve_auto_review_member(&settings, "codex-auto-review")
+            .unwrap()
+            .expect("审批请求交给审批成员");
+        assert_eq!(binding.relay_id, "deepseek");
+        assert_eq!(binding.upstream_model, "deepseek-chat", "没填审批模型时用默认模型");
+
+        settings.relay_profiles[0].auto_review_model = " deepseek-reasoner ".to_string();
+        let binding = resolve_auto_review_member(&settings, "codex-auto-review")
+            .unwrap()
+            .unwrap();
+        assert_eq!(binding.upstream_model, "deepseek-reasoner");
+
+        settings.relay_profiles[0].api_key = String::new();
+        let error = resolve_auto_review_member(&settings, "codex-auto-review").unwrap_err();
+        assert!(error.to_string().contains("DeepSeek"), "{error}");
+    }
+
     /// 活动目录发布的模型 ID：聚合是 `cpx-*`，普通供应商是它自己的目录条目加路由源模型名。
     #[test]
     fn active_published_model_ids_follow_active_provider() {
@@ -880,6 +1382,52 @@ mod tests {
         assert!(resolve_active_model(&settings, "cpx-official/gpt-5.6-sol")
             .unwrap()
             .is_some());
+    }
+
+    /// #2763：官方登录成员一个模型都没填时，按本机 Codex 缓存的官方模型目录发布（隐藏的不算）；
+    /// 填过模型列表的照旧只发布自己填的；读不到缓存时保持空。
+    #[test]
+    fn official_member_without_models_publishes_codex_official_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let official = RelayProfile {
+            id: "official".to_string(),
+            name: "系统默认".to_string(),
+            relay_mode: RelayMode::Official,
+            auth_contents: r#"{"auth_mode":"chatgpt","tokens":{"access_token":"a","refresh_token":"r","account_id":"acct-1"}}"#.to_string(),
+            ..RelayProfile::default()
+        };
+        let slugs = |profile: &RelayProfile| -> Vec<String> {
+            profile_catalog_entries_with_home(profile, home.path())
+                .unwrap()
+                .into_iter()
+                .map(|entry| entry.slug)
+                .collect()
+        };
+        assert!(slugs(&official).is_empty(), "没有缓存时保持原状");
+
+        std::fs::write(
+            home.path().join("models_cache.json"),
+            json!({"models": [
+                {"slug": "gpt-6.1-sol", "visibility": "list"},
+                {"slug": "codex-auto-review", "visibility": "hide"},
+                {"slug": "gpt-6-astra"},
+                {"slug": "gpt-6.1-sol", "visibility": "list"},
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(slugs(&official), vec!["gpt-6.1-sol", "gpt-6-astra"]);
+
+        let listed = RelayProfile {
+            model_list: "gpt-5.6-sol".to_string(),
+            ..official.clone()
+        };
+        assert_eq!(slugs(&listed), vec!["gpt-5.6-sol"], "填过的只发布自己填的");
+        let api = RelayProfile {
+            relay_mode: RelayMode::PureApi,
+            ..official
+        };
+        assert!(slugs(&api).is_empty(), "只有官方登录成员用官方目录");
     }
 
     #[test]
@@ -977,5 +1525,50 @@ mod tests {
         // 关闭模型聚合（故障转移类型）后不再提示。
         settings.aggregate_relay_profiles[0].model_aggregation_enabled = false;
         assert!(subagent_conflict_warning(temp.path(), &settings).is_none());
+    }
+
+    /// #2683：普通供应商显式 v1 后闸门被重新打开 → 提示；闸门关闭或未选择 v1 → 静默。
+    #[test]
+    fn subagent_conflict_warning_covers_provider_level_v1_choice() {
+        let temp = tempfile::tempdir().unwrap();
+        // 无聚合：普通 API 供应商。
+        let mut settings = settings();
+        settings.aggregate_relay_profiles.clear();
+        settings.active_aggregate_relay_id = String::new();
+        settings.active_relay_id = "relay-api".to_string();
+        settings.relay_profiles = vec![RelayProfile {
+            id: "relay-api".to_string(),
+            name: "API".to_string(),
+            multi_agent: "v1".to_string(),
+            ..RelayProfile::default()
+        }];
+
+        // 未显式选 v1 或闸门关闭时都静默。
+        std::fs::write(
+            temp.path().join("config.toml"),
+            "model = \"x\"\n[features]\nmulti_agent_v2 = true\n",
+        )
+        .unwrap();
+        settings.relay_profiles[0].multi_agent = String::new();
+        assert!(subagent_conflict_warning(temp.path(), &settings).is_none());
+        settings.relay_profiles[0].multi_agent = "v2".to_string();
+        assert!(subagent_conflict_warning(temp.path(), &settings).is_none());
+        settings.relay_profiles[0].multi_agent = "v1".to_string();
+        std::fs::write(
+            temp.path().join("config.toml"),
+            "model = \"x\"\n[features]\nmulti_agent_v2 = false\n",
+        )
+        .unwrap();
+        assert!(subagent_conflict_warning(temp.path(), &settings).is_none());
+
+        // v1 + 闸门开启 → 提示（用户手改或 Codex 回写造成的漂移）。
+        std::fs::write(
+            temp.path().join("config.toml"),
+            "model = \"x\"\n[features]\nmulti_agent_v2 = true\n",
+        )
+        .unwrap();
+        let warning = subagent_conflict_warning(temp.path(), &settings).unwrap();
+        assert!(warning.contains("v1"), "{warning}");
+        assert!(warning.contains("multi_agent_v2"), "{warning}");
     }
 }

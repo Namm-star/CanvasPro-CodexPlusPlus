@@ -63,11 +63,64 @@ fn manager_close_minimizes_to_tray_without_confirmation() {
     assert!(!lib_rs.contains("manager://close-requested"));
     assert!(lib_rs.contains("let _ = close_event_window.hide();"));
     assert!(!lib_rs.contains("startup_is_transient()"));
-    assert!(lib_rs.contains(".visible(true)"));
+    // 登录启动可以按已有设置隐藏窗口，手动打开仍保持可见。
+    assert!(lib_rs.contains("build_main_window(app.handle(), url, !start_minimized)"));
+    assert!(lib_rs.contains(".visible(visible)"));
     assert!(lib_rs.contains("codex_plus_launcher::shutdown()"));
     assert!(!app_tsx.contains("CloseConfirmDialog"));
     assert!(app_tsx.contains("manager_exit_app"));
     assert!(app_tsx.contains("manager_hide_to_tray"));
+}
+
+// issue #2677：轻量模式。关窗先隐藏、稍后销毁主窗口释放 WebView；所有打开入口按原配置重建；
+// 最后一个窗口销毁触发的退出请求（不带退出码）不能把后台一起退掉。
+#[test]
+fn manager_lightweight_mode_destroys_and_rebuilds_the_main_window() {
+    let lib_rs = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+        .expect("read manager lib.rs");
+    let lightweight_rs =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lightweight.rs"))
+            .expect("read manager lightweight.rs");
+    let tray_panel_rs =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/tray_panel.rs"))
+            .expect("read manager tray_panel.rs");
+
+    // 关窗：照旧隐藏，再按开关排期销毁。
+    assert!(lib_rs.contains("lightweight::schedule_release(&close_event_app);"));
+    assert!(lightweight_rs.contains("if !enabled() {"));
+    assert!(lightweight_rs.contains("window.destroy()"));
+    // 销毁只针对仍隐藏的窗口，重新打开或获得焦点会取消。
+    assert!(lightweight_rs.contains("window.is_visible().unwrap_or(true)"));
+    assert!(lib_rs.contains("lightweight::cancel_pending_release();"));
+    // 打开入口统一走 show_main_window → ensure_main_window，窗口不在就按原配置重建。
+    assert!(lib_rs.contains("fn ensure_main_window"));
+    assert!(lib_rs.contains("build_main_window(app_handle, MAIN_WINDOW_URL, false)"));
+    assert_eq!(
+        lib_rs.matches("tauri::WebviewWindowBuilder::new(").count(),
+        1
+    );
+    assert!(!lib_rs.contains("get_webview_window(\"main\")"));
+    // 最后一个窗口销毁不等于退出。
+    assert!(lib_rs.contains("if code.is_none() && !APP_EXITING.load(Ordering::SeqCst) {"));
+    // 快捷面板的「打开」可能要建窗口，不能是同步命令（Windows 上会死锁）。
+    assert!(tray_panel_rs.contains("pub async fn tray_panel_action"));
+    assert!(lightweight_rs.contains("pub async fn main_window_prepare"));
+}
+
+#[test]
+fn macos_tray_panel_is_shown_with_rounded_corners() {
+    let panel_rs =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/tray_panel.rs"))
+            .expect("read tray_panel.rs");
+
+    // 显示之后再裁圆角，阴影才会按圆角轮廓重算。
+    let shown = panel_rs.find("let _ = window.show();").expect("panel shows the window");
+    let rounded = panel_rs
+        .find("round_corners(app, &window);")
+        .expect("panel rounds its corners");
+    assert!(shown < rounded);
+    assert!(panel_rs.contains("codex_plus_core::macos_window::round_corners("));
+    assert!(panel_rs.contains("app.run_on_main_thread("));
 }
 
 #[test]
@@ -84,6 +137,44 @@ fn manager_keeps_a_visible_brand_tray_and_click_menu_when_hiding_the_macos_dock_
     assert!(lib_rs.contains("tauri::include_image!(\"icons/icon.png\")"));
     assert!(lib_rs.contains(".show_menu_on_left_click(true)"));
     assert!(lib_rs.contains(".tooltip(\"Codex++\")"));
+}
+
+// 返回 needle 之前文本最近的 #[cfg(...)] 属性。前提是设置语句与其平台门控
+// 属性之间没有插入其他 #[cfg(（install_tray 内的布局保证了这一点）；
+// 若日后重排语句，请同步调整这里的假设或改用语法解析。
+fn nearest_cfg_before<'a>(source: &'a str, needle: &str) -> &'a str {
+    let at = source.find(needle).expect(needle);
+    let before = &source[..at];
+    let start = before
+        .rfind("#[cfg(")
+        .expect("cfg attribute before the setting");
+    let end = before[start..]
+        .find(']')
+        .map(|offset| start + offset)
+        .expect("cfg attribute end");
+    &before[start..=end]
+}
+
+// issue #2676：Windows 左键单击直接唤起主窗口（菜单只留给右键），
+// 非 Windows 平台保持「点击弹出菜单」的原有行为不变。
+#[test]
+fn windows_tray_left_click_restores_the_window_and_keeps_the_menu_for_right_click() {
+    let lib_rs = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+        .expect("read manager lib.rs");
+
+    assert_eq!(
+        nearest_cfg_before(&lib_rs, ".show_menu_on_left_click(false)"),
+        "#[cfg(windows)]"
+    );
+    assert_eq!(
+        nearest_cfg_before(&lib_rs, ".show_menu_on_left_click(true)"),
+        "#[cfg(not(windows))]"
+    );
+    // 左键单击唤窗走统一的事件判定，不绕过 show_main_window。
+    assert!(lib_rs.contains("tray_event_shows_main_window(&event)"));
+    // CI 只在 Windows 跑 cargo test，谓词的平台门控靠这里文本守护：
+    // 去掉 cfg!(windows) && 会让非 Windows 平台的左键单击也唤窗（#2676 回归）。
+    assert!(lib_rs.contains("cfg!(windows) && left_click_up"));
 }
 
 #[test]
@@ -443,6 +534,10 @@ fn manager_update_install_keeps_visible_progress_bar() {
     assert!(app_tsx.contains("安装包更新进度"));
     assert!(app_tsx.contains("completedTitle={t(\"上次更新结果\")}"));
     assert!(app_tsx.contains("progress={updateInstallProgress}"));
-    assert!(app_tsx.contains("current.percent + 0.2"));
-    assert!(app_tsx.contains("下载或启动耗时较长"));
+    assert!(app_tsx.contains("listen<UpdateProgressEvent>(\"update-progress\""));
+    assert!(app_tsx.contains("data-indeterminate"));
+    assert!(app_tsx.contains("正在写入安装包并准备安装"));
+    assert!(app_tsx.contains("正在启动安装器"));
+    assert!(!app_tsx.contains("current.percent + 0.2"));
+    assert!(!app_tsx.contains("下载或启动耗时较长"));
 }

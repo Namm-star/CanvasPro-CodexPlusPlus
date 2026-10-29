@@ -1,6 +1,6 @@
 # CanvasPro Codex++ 后续开发与发布手册
 
-更新日期：2026-10-15。适用于 CanvasPro 定制客户端。历史事实见 [开发记录](CANVASPRO_HISTORY.md)，用户教程见 [CANVASPRO.md](../CANVASPRO.md)。本次同步为 v1.9.0-canvaspro.1，最新操作变化见文末。
+更新日期：2026-10-29。适用于 CanvasPro 定制客户端。历史事实见 [开发记录](CANVASPRO_HISTORY.md)，用户教程见 [CANVASPRO.md](../CANVASPRO.md)。本次同步为 v2.1.1-canvaspro.1，最新操作变化见文末。
 
 ## 接手时确认基线
 
@@ -11,7 +11,7 @@ git status --short
 git branch --show-current
 git remote -v
 git log -8 --oneline
-git show --no-patch 'v1.9.0-canvaspro.1^{commit}'
+git show --no-patch 'v2.1.1-canvaspro.1^{commit}'
 ```
 
 `origin` 应为 `Namm-star/CanvasPro-CodexPlusPlus`，`upstream` 为 `BigPizzaV3/CodexPlusPlus`。安装包以对应 release tag 和构建清单的 `sourceCommit` 为准；开发分支可能含后续 CI 和文档变更，不能把最新 README 当作所有已安装二进制的源码。
@@ -55,7 +55,8 @@ npm run check
 npm run vite:build
 Pop-Location
 
-cargo test -p codex-plus-core --test canvaspro_defaults --locked
+cargo test -p codex-plus-core --test all canvaspro_defaults:: --locked
+cargo test -p codex-plus-core --test all updater:: --locked
 cargo test --workspace --locked
 cargo build --release --locked
 ```
@@ -96,7 +97,7 @@ gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --re
 
 中英文 README、`docs/CANVASPRO.md`、Release 正文和 `latest.json` 中的用户步骤应一致。统一账号注册 / 登录、密钥页按钮、钱包扣费和模型权限说明需按当次实际页面核对。
 
-当前交流入口使用 CanvasPro「画布&api服务群」，二维码为 `docs/images/canvaspro-support-group-20261015.png`，截图标注 2026-10-22 前有效。二维码有有效期，维护时新增带日期的原图并更新当前文档、发布正文和 `latest.json`，保留历史记录与已发布安装包。未来打包脚本须与教程图片引用一致。用户反馈入口指向定制仓库。上游作者、许可证和第三方声明继续保留，赞助商展示与使用支持入口不沿用原版。
+当前交流入口使用微信 CanvasPro「画布&api服务群」，二维码为 `docs/images/canvaspro-support-group-20261029.png`，截图标注 2026-11-05 前有效，用户已确认平台为微信。二维码有有效期，维护时新增带日期的原图并更新当前文档、发布正文和 `latest.json`，保留历史记录与已发布安装包。未来打包脚本须与教程图片引用一致。用户反馈入口指向定制仓库。上游作者、许可证和第三方声明继续保留，赞助商展示与使用支持入口不沿用原版。
 
 安装包必须保留对应署名及许可文件，并提供对应源码。原项目脚本 / 皮肤市场链接属于已有生态依赖，不能与定制版更新源、作者署名或售后链接混为一类后批量替换。
 
@@ -120,3 +121,12 @@ gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --re
 - 交互检查必须包含“保存失败后立即重试”；React actions 的记忆依赖应包含切换状态，避免旧闭包永久拦截后续操作。
 - 记录中“首发”的两个 Mac job、Windows 人工清单和原版本升级限制属于历史；新版本的验证以对应标签与清单为准。
 - 上游 `site/` 含原官网域名及素材，CanvasPro 未配置 GitHub Pages。本仓库的 `pages.yml` 仅手动触发；不要为解决一个无关的 Pages 404 而启用或发布上游官网。安装包发布以 `release-assets.yml` 为准。
+
+## v2.1.1 同步后的操作变化
+
+- 上游基线为 `97278ddf11570a6cae7297379c1354a63dfeb13d`；记录与模型核对日期为 2026-10-29。本次新增 QR 原图、统一版本为 `2.1.1-canvaspro.1`，不修改旧发布标签。
+- 默认首页为网关总览，CanvasPro 快速入口同时放在总览与 Codex 概览。保留旧供应商直接配置及官方登录，网关能力按用户选择开启。网关已接管 Codex 时，后端切换保护会要求先断开并还原，不绕过保护覆盖现有配置。
+- 新启动操作返回成功布尔值，CanvasPro 帮助函数同时接受旧 void / 新 boolean 结果，失败时不清空输入。actions 保留 `relaySwitching` 依赖，实时配置冲突对话框采用上游实现。
+- 模型选择使用新版 `AppSelect`。浏览器烟测按真实的按钮 / 列表选项交互，并模拟新版本带时间戳的启动结果，不能再用旧 `launchStartedAtMs: null` 冒充启动成功。
+- core / data 的大部分测试已合并到 `tests/all/main.rs`。CanvasPro 默认配置和更新器用 `--test all canvaspro_defaults::` / `updater::`，两个平台发布工作流同步这些过滤入口。依赖独占进程的测试仍单独保留。
+- `work_view` 的单测需要显式构造官方登录供应商，以覆盖未启用纯 API 的分支；CanvasPro 安装默认本来就是 Pure API。Windows Skill 链接单测同时验证实际软链或带受控标记的回退副本及文件内容，与生产回退行为一致。

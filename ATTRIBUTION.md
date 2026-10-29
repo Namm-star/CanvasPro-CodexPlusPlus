@@ -20,6 +20,8 @@ The launcher, manager, provider configuration, protocol adapters, session manage
 
 2026-10-15 同步 / Upstream synchronization: **v1.9.0**, commit `a5f531d0d2d510a984890f26fdbbc98d995c12ad`。继续保留上游作者、历史和许可证；CanvasPro 定制接入、更新源及打包变化单独记录在 [开发记录](docs/development/CANVASPRO_HISTORY.md)。
 
+2026-10-29 同步 / Upstream synchronization: **v2.1.1**, commit `97278ddf11570a6cae7297379c1354a63dfeb13d`。本版保留上游网关与增强能力，适配 CanvasPro 首页接入、新启动结果及交流群二维码；具体来源与验证分别记入本版发布基线。
+
 本定制版修改默认供应商为 CanvasPro New API，增加填写用户 API Key 后保存并启动 Codex 的入口，内置已核对的四款 GPT 文本模型，并调整使用说明、安装包和发布资料。已有供应商及上游功能继续保留。具体改动可查看 Git 提交和 [docs/CANVASPRO.md](docs/CANVASPRO.md)。
 
 This edition changes the default provider to CanvasPro New API, adds a save-and-launch flow using the user's API key, presets four verified GPT text models, and adapts usage, packaging, and release materials. Existing providers and upstream features remain available. See Git commits and [docs/CANVASPRO.md](docs/CANVASPRO.md) for details.

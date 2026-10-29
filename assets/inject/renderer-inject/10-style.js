@@ -20,29 +20,62 @@
         background: transparent;
       }
       .${actionButtonClass} {
-        width: 20px;
-        height: 20px;
+        flex: 0 0 auto;
+        -webkit-app-region: no-drag;
+      }
+      /* 外观优先套用同一行原生「置顶 / 归档」按钮的类名与 data-* 属性（见
+         90-action-groups.js 的 syncNativeSessionActionStyle），套上后带
+         data-codex-native-style，下面这组兜底规则就不再生效。兜底按 Codex 原生
+         secondary / transparent / 3xs 图标按钮复刻：20px 方形、14px 图标、
+         默认三级文字色，悬停只提亮颜色、不铺底色。 */
+      .${actionButtonClass}:not([data-codex-native-style]) {
+        position: relative;
+        width: var(--control-size-4xs, 20px);
+        height: var(--control-size-4xs, 20px);
         display: inline-flex;
         align-items: center;
         justify-content: center;
         border: 0;
-        border-radius: 6px;
+        border-radius: var(--control-radius-sm, var(--radius-sm, 6px));
         background: transparent;
-        color: var(--codex-session-action-color, var(--color-token-text-tertiary, var(--codex-plus-text-tertiary, rgba(255,255,255,.5))));
-        font: 14px/1 system-ui, sans-serif;
+        color: var(--color-text-secondary-ghost, var(--color-text-tertiary, var(--color-token-text-tertiary, var(--codex-plus-text-tertiary, rgba(255,255,255,.5)))));
+        font: inherit;
         padding: 0;
         cursor: default;
         text-align: center;
+        transition: color var(--transition-duration-basic, .15s) var(--transition-ease-basic, ease);
       }
-      .${actionButtonClass} svg {
+      .${actionButtonClass}:not([data-codex-native-style]) svg {
         display: block;
-        width: 16px;
-        height: 16px;
+        width: var(--control-icon-size-xs, 14px);
+        height: var(--control-icon-size-xs, 14px);
       }
-      .${actionButtonClass}:hover,
-      .${actionButtonClass}:focus-visible {
-        background: var(--codex-session-action-hover-background, transparent);
-        color: var(--codex-session-action-hover-color, var(--codex-session-action-color, var(--color-token-text-primary, #f4f4f5)));
+      .codex-session-action-inner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+      [data-codex-plus-ext="side-chat-save"] > .codex-plus-side-chat-save-spinner {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        box-sizing: border-box;
+        border: 1.5px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        margin-inline-start: 4px;
+        vertical-align: -1px;
+        animation: codex-plus-side-chat-save-spin .8s linear infinite;
+      }
+      @keyframes codex-plus-side-chat-save-spin { to { transform: rotate(360deg); } }
+      .${actionButtonClass}:not([data-codex-native-style]):hover,
+      .${actionButtonClass}:not([data-codex-native-style]):focus-visible,
+      .${actionButtonClass}:not([data-codex-native-style])[aria-expanded="true"] {
+        background: transparent;
+        color: var(--color-text-secondary-ghost-hover, var(--color-text, var(--color-token-text-primary, #f4f4f5)));
         outline: none;
       }
       .${moreMenuClass} {
@@ -129,9 +162,6 @@
         border-color: var(--color-token-border-light, var(--color-token-border-default, rgba(0,0,0,.12)));
         background: var(--color-token-bg-secondary, transparent);
         color: var(--color-token-text-primary, inherit);
-      }
-      .${sessionCopyMenuItemClass} {
-        cursor: pointer;
       }
       .${sessionShareButtonClass} {
         position: static;
@@ -484,11 +514,23 @@
         height: calc(100vh / var(--codex-plus-zoom, 1) - var(--codex-plus-page-top, 0px) - var(--codex-plus-page-bottom, 0px));
         border-radius: var(--codex-plus-page-radius, 0px);
         overflow: hidden;
-        z-index: 2147483644;
+        /*
+         * 功能页是覆盖在 Codex 内容区上的基础层，不能压过原生侧栏/顶部栏
+         * 的 tooltip 和 menu；原生弹出层在页面打开时由下方规则提升。
+         */
+        z-index: 2147482000;
         display: block;
         background: var(--codex-plus-bg-primary, #fff);
         pointer-events: auto;
         -webkit-app-region: no-drag;
+      }
+      /* 提升定位包装层，避免只改 tooltip/menu 子节点仍被父级堆叠上下文困住。 */
+      html[data-codex-plus-page-open] [data-radix-popper-content-wrapper]:not(.${codexPlusPageClass} *),
+      html[data-codex-plus-page-open] [role="tooltip"]:not(.${codexPlusPageClass} *),
+      html[data-codex-plus-page-open] [role="menu"]:not(.${codexPlusPageClass} *),
+      html[data-codex-plus-page-open] [class*="ApplicationMenuTopBar"],
+      html[data-codex-plus-page-open] .app-header-tint {
+        z-index: 2147483645 !important;
       }
       .${codexPlusPageClass} .codex-plus-modal-content {
         width: auto;
@@ -975,46 +1017,6 @@
         font-size: 13px;
       }
       .codex-plus-typing-effect-select:disabled { opacity: .55; cursor: not-allowed; }
-      .codex-plus-service-tier-control { display: grid; gap: 6px; min-width: 316px; justify-items: end; align-self: center; }
-      .codex-plus-service-tier-status { color: #a1a1aa; font-size: 13px; line-height: 1.3; text-align: right; }
-      .codex-plus-service-tier-status[data-status="ok"] { color: #34d399; }
-      .codex-plus-service-tier-status[data-status="failed"] { color: #f87171; }
-      .codex-plus-service-tier-status[data-status="unsupported"] { color: #fbbf24; }
-      .codex-plus-service-tier-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-      .codex-plus-service-tier-thread-actions { opacity: .88; align-items: center; }
-      .codex-plus-service-tier-thread-label { color: #a1a1aa; font-size: 13px;
-        line-height: 1.2;
-        font-family: inherit; white-space: nowrap; }
-      .codex-plus-service-tier-button { border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: #3f3f46; color: #f3f4f6; font-size: 13px;
-        font-family: inherit; padding: 5px 8px; white-space: nowrap; }
-      .codex-plus-service-tier-button[data-active="true"] { border-color: #10a37f; background: rgba(16,163,127,.22); color: #6ee7b7; }
-      .codex-plus-service-tier-button:disabled { opacity: .55; cursor: not-allowed; }
-      .${codexServiceTierBadgeClass} {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        flex: 0 0 auto;
-        height: 24px;
-        min-width: 54px;
-        box-sizing: border-box;
-        border: 1px solid rgba(148,163,184,.28);
-        border-radius: 999px;
-        background: rgba(148,163,184,.12);
-        color: #d4d4d8;
-        font-size: 13px;
-        font-weight: 600;
-        line-height: 1;
-        font-family: inherit;
-        padding: 0 8px;
-        white-space: nowrap;
-        cursor: pointer;
-      }
-      .${codexServiceTierBadgeClass}:hover { border-color: rgba(16,163,127,.44); background: rgba(16,163,127,.13); }
-      .${codexServiceTierBadgeClass}[data-tier="fast"] { border-color: rgba(16,163,127,.55); background: rgba(16,163,127,.18); color: #6ee7b7; }
-      .${codexServiceTierBadgeClass}[data-tier="loading"] { color: #a1a1aa; }
-      .${codexServiceTierBadgeClass}[data-tier="failed"] { border-color: rgba(248,113,113,.42); background: rgba(248,113,113,.12); color: #fca5a5; }
-      .${codexServiceTierBadgeClass}[data-tier="unsupported"] { border-color: rgba(251,191,36,.48); background: rgba(251,191,36,.13); color: #fbbf24; }
-      .${codexServiceTierBadgeClass}[data-disabled="true"] { cursor: not-allowed; opacity: .78; }
       .codex-plus-about { color: #a1a1aa; line-height: 1.5; }
       .codex-plus-panel[hidden] { display: none; }
       .codex-plus-action-button,
@@ -1171,18 +1173,6 @@
       .codex-session-more-menu-item { border-radius: var(--border-radius-sm, 6px); font-family: inherit; }
       .codex-session-more-menu-item:hover,
       .codex-session-more-menu-item:focus-visible { background: var(--codex-plus-bg-hover); }
-      .${actionButtonClass} {
-        width: var(--h-token-button-composer-sm, 28px);
-        height: var(--h-token-button-composer-sm, 28px);
-        border-radius: var(--border-radius-lg, 8px);
-        color: var(--codex-session-action-color, var(--codex-plus-text-tertiary));
-        font-family: inherit;
-      }
-      .${actionButtonClass}:hover,
-      .${actionButtonClass}:focus-visible {
-        background: var(--codex-session-action-hover-background, var(--codex-plus-bg-hover));
-        color: var(--codex-session-action-hover-color, var(--codex-plus-text));
-      }
       .${sessionShareButtonClass}:hover,
       .${sessionShareButtonClass}:focus-visible {
         background: var(--codex-plus-bg-hover);
@@ -1213,14 +1203,12 @@
       .codex-delete-confirm-message,
       .codex-plus-row-description,
       .codex-plus-about,
-      .codex-plus-service-tier-thread-label,
       .codex-plus-backend-label,
       .codex-plus-form-message,
       .codex-plus-sponsor-text { color: var(--codex-plus-text-secondary); }
       .codex-delete-confirm-actions button,
       .codex-plus-action-button,
-      .codex-plus-issue-button,
-      .codex-plus-service-tier-button {
+      .codex-plus-issue-button {
         min-height: 32px;
         border: 1px solid var(--codex-plus-border);
         border-radius: var(--border-radius-lg, 8px);
@@ -1237,8 +1225,6 @@
       .codex-plus-action-button:focus-visible,
       .codex-plus-issue-button:hover,
       .codex-plus-issue-button:focus-visible,
-      .codex-plus-service-tier-button:hover,
-      .codex-plus-service-tier-button:focus-visible,
       .codex-delete-confirm-actions [data-codex-delete-confirm="true"] {
         border-color: var(--color-border-danger, #dc2626);
         background: var(--color-background-danger-solid, #dc2626);
@@ -1272,11 +1258,6 @@
       .codex-plus-width-input:focus,
       .codex-plus-typing-effect-select:focus,
       .codex-plus-form-field input:focus { border-color: var(--codex-plus-focus); outline: 2px solid color-mix(in srgb, var(--codex-plus-focus) 25%, transparent); outline-offset: 0; }
-      .codex-plus-service-tier-button[data-active="true"] {
-        border-color: var(--color-border-primary, var(--codex-plus-focus));
-        background: var(--color-background-primary-soft, var(--codex-plus-bg-selected));
-        color: var(--color-text-primary, var(--codex-plus-text));
-      }
       #${codexPlusSidebarNavId} .codex-plus-sidebar-nav-status,
       .codex-plus-backend-indicator { box-shadow: none; }
       #${codexPlusSidebarNavId} .codex-plus-sidebar-nav-status[data-status="ok"],
@@ -1287,18 +1268,6 @@
       .codex-plus-backend-indicator[data-status="checking"] { background: var(--codex-plus-warning); }
       #${codexPlusSidebarNavId} .codex-plus-sidebar-nav-status[data-status="degraded"],
       .codex-plus-backend-indicator[data-status="degraded"] { background: var(--codex-plus-warning); }
-      .${codexServiceTierBadgeClass} {
-        height: 24px;
-        border-color: var(--codex-plus-border);
-        border-radius: var(--border-radius-lg, 8px);
-        background: var(--codex-plus-bg-secondary);
-        color: var(--codex-plus-text-secondary);
-        font-family: inherit;
-      }
-      .${codexServiceTierBadgeClass}:hover { border-color: var(--codex-plus-focus); background: var(--codex-plus-bg-hover); }
-      .${codexServiceTierBadgeClass}[data-tier="fast"] { border-color: var(--color-border-primary, var(--codex-plus-focus)); background: var(--color-background-primary-soft, var(--codex-plus-bg-selected)); color: var(--codex-plus-text); }
-      .${codexServiceTierBadgeClass}[data-tier="failed"] { border-color: var(--color-border-danger, var(--codex-plus-danger)); background: var(--codex-plus-danger-bg); color: var(--codex-plus-danger); }
-      .${codexServiceTierBadgeClass}[data-tier="unsupported"] { border-color: var(--color-border-warning, var(--codex-plus-border)); background: var(--color-background-warning-soft, var(--codex-plus-bg-hover)); color: var(--codex-plus-warning); }
       .codex-plus-ad-card { border-color: var(--codex-plus-border-subtle); background: var(--codex-plus-bg-secondary); }
       .codex-plus-ad-card:hover,
       .codex-plus-ad-card:focus-visible { border-color: var(--codex-plus-border); background: var(--codex-plus-bg-hover); }
@@ -1321,10 +1290,10 @@
         color: var(--codex-plus-warning);
       }
       .codex-plus-ad-empty { border-color: var(--codex-plus-border); color: var(--codex-plus-text-tertiary); }
-      .codex-plus-form-message[data-status="ok"], .codex-plus-service-tier-status[data-status="ok"], .codex-plus-backend-label[data-status="ok"] { color: var(--codex-plus-success); }
-      .codex-plus-form-message[data-status="failed"], .codex-plus-service-tier-status[data-status="failed"], .codex-plus-backend-label[data-status="failed"] { color: var(--codex-plus-danger); }
+      .codex-plus-form-message[data-status="ok"], .codex-plus-backend-label[data-status="ok"] { color: var(--codex-plus-success); }
+      .codex-plus-form-message[data-status="failed"], .codex-plus-backend-label[data-status="failed"] { color: var(--codex-plus-danger); }
       .codex-plus-backend-label[data-status="degraded"] { color: var(--codex-plus-warning); }
-      .codex-plus-form-message[data-status="loading"], .codex-plus-service-tier-status[data-status="unsupported"], .codex-plus-model-compat-warning { color: var(--codex-plus-warning); }
+      .codex-plus-form-message[data-status="loading"], .codex-plus-model-compat-warning { color: var(--codex-plus-warning); }
       /* Codex++ 设置主页：对齐原生设置页，保持其它页面与弹窗的布局独立。 */
       .${codexPlusPageClass} .codex-plus-modal-content[data-codex-plus-active-tab="home"] {
         background: var(--codex-plus-settings-page-bg, var(--codex-plus-bg-primary)) !important;
@@ -1391,6 +1360,25 @@
       }
       .codex-plus-settings .codex-plus-row > :not(:first-child) { max-width: 48%; }
       .codex-plus-settings .codex-plus-row-title { font-weight: 500; line-height: 20px; }
+      /* 设置项标题旁的小标签：实验 / 需重启，与管理器增强页一致。 */
+      .codex-plus-settings .codex-plus-feature-tag {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 6px;
+        padding: 0 5px;
+        border: 1px solid var(--codex-plus-border);
+        border-radius: 4px;
+        color: var(--codex-plus-text-secondary);
+        font-size: 10.5px;
+        font-style: normal;
+        font-weight: 500;
+        line-height: 16px;
+        vertical-align: 1px;
+      }
+      .codex-plus-settings .codex-plus-feature-tag[data-tone="experimental"] {
+        border-color: color-mix(in srgb, var(--codex-plus-warning) 40%, transparent);
+        color: var(--codex-plus-warning);
+      }
       .codex-plus-settings .codex-plus-row-description,
       .codex-plus-settings .codex-plus-about {
         margin-top: 2px;
@@ -1424,15 +1412,9 @@
         flex-wrap: wrap;
         gap: 8px;
       }
-      .codex-plus-settings .codex-plus-service-tier-control {
-        flex: 0 1 300px;
-        min-width: 0;
-      }
-      .codex-plus-settings .codex-plus-service-tier-status { overflow-wrap: anywhere; }
       .codex-plus-settings .codex-plus-backend-status { overflow-wrap: anywhere; text-align: right; }
       .codex-plus-settings .codex-plus-action-button,
       .codex-plus-settings .codex-plus-issue-button,
-      .codex-plus-settings .codex-plus-service-tier-button,
       .codex-plus-settings .codex-plus-width-input,
       .codex-plus-settings .codex-plus-typing-effect-select {
         box-sizing: border-box;
@@ -1533,16 +1515,9 @@
       .codex-plus-settings .codex-plus-action-button:hover,
       .codex-plus-settings .codex-plus-action-button:focus-visible,
       .codex-plus-settings .codex-plus-issue-button:hover,
-      .codex-plus-settings .codex-plus-issue-button:focus-visible,
-      .codex-plus-settings .codex-plus-service-tier-button:hover,
-      .codex-plus-settings .codex-plus-service-tier-button:focus-visible {
+      .codex-plus-settings .codex-plus-issue-button:focus-visible {
         border-color: var(--codex-plus-border);
         background: var(--codex-plus-bg-hover);
-        color: var(--codex-plus-text);
-      }
-      .codex-plus-settings .codex-plus-service-tier-button[data-active="true"] {
-        border-color: var(--codex-plus-switch-on, #3485ff);
-        background: color-mix(in srgb, var(--codex-plus-switch-on, #3485ff) 16%, var(--codex-plus-settings-card-bg, var(--codex-plus-bg-secondary)));
         color: var(--codex-plus-text);
       }
       .codex-plus-settings button:focus-visible,
@@ -1560,9 +1535,6 @@
       }
       @container codex-plus-settings (max-width: 560px) {
         .codex-plus-settings .codex-plus-row { gap: 16px; }
-        .codex-plus-settings .codex-plus-row[data-codex-service-tier-controls="true"] { flex-wrap: wrap; }
-        .codex-plus-settings .codex-plus-row[data-codex-service-tier-controls="true"] > :first-child { flex-basis: 100%; }
-        .codex-plus-settings .codex-plus-row[data-codex-service-tier-controls="true"] > .codex-plus-service-tier-control { flex-basis: 100%; max-width: 100%; }
       }
       /* 拓展与推荐内容使用原生插件页面的导航、标题和轻量列表布局。 */
       .${codexPlusPageClass} .codex-plus-modal-content:is([data-codex-plus-active-tab="extensions"], [data-codex-plus-active-tab="sponsor"]) {
@@ -1877,32 +1849,35 @@
   }
 
   function defaultCodexPlusSettings() {
-    // capacityAutoRetry* 必须写成字面量：多个测试（typing-effects-settings、whale-widget、
+    // capacityAutoRetry* 必须写成字面量：多个测试（typing-effects-settings、agent-pet、
     // session-share-runtime…）把 defaultCodexPlusSettings 切片到不带 prelude 的沙箱里执行，
     // 引用 prelude 常量会直接 ReferenceError。与 00-prelude.js 里
     // capacityAutoRetryDefaultMaxAttempts / capacityAutoRetryDefaultIntervalSeconds 的一致性
     // 由 capacity-auto-retry.test.ts 的防漂移用例守住。
-    return { pluginMarketplaceUnlock: true, modelWhitelistUnlock: true, sessionDelete: true, markdownExport: true, sessionShare: true, pasteFix: false, typingEffect: "off", threadIdBadge: false, conversationView: false, whaleWidget: false, conversationViewMaxWidth: conversationViewDefaultWidth, threadScrollRestore: true, nativeMenuPlacement: true, serviceTierControls: false, petRealMouseLook: false, activityOverlayRight: false, stepwise: false, answerOutline: false, usageStatusLine: true, capacityAutoRetry: false, capacityAutoRetryMaxAttempts: 15, capacityAutoRetryIntervalSeconds: 0, dreamSkinEnabled: false, dreamSkinPaused: false, dreamSkinThemeConfig: window.__CODEX_PLUS_DREAM_SKIN_THEME__ || {}, dreamSkinImagePath: "" };
+    return { sideChatSave: false, pluginMarketplaceUnlock: true, modelWhitelistUnlock: true, sessionDelete: true, sessionDeleteSkipConfirm: false, markdownExport: true, sessionShare: true, pasteFix: false, typingEffect: "off", threadIdBadge: false, conversationView: false, conversationViewMaxWidth: conversationViewDefaultWidth, threadScrollRestore: true, historyTurnRecovery: false, nativeMenuPlacement: true, nativeFastUnlock: false, petRealMouseLook: false, activityOverlayRight: false, stepwise: false, answerOutline: false, usageStatusLine: true, turnRewind: false, capacityAutoRetry: false, capacityAutoRetryMaxAttempts: 15, capacityAutoRetryIntervalSeconds: 0, dreamSkinEnabled: false, dreamSkinPaused: false, dreamSkinThemeConfig: window.__CODEX_PLUS_DREAM_SKIN_THEME__ || {}, dreamSkinImagePath: "" };
   }
 
   const codexPlusBackendSettingMap = {
     pluginMarketplaceUnlock: "codexAppPluginMarketplaceUnlock",
     modelWhitelistUnlock: "codexAppModelWhitelistUnlock",
     sessionDelete: "codexAppSessionDelete",
+    sessionDeleteSkipConfirm: "codexAppSessionDeleteSkipConfirm",
+    sideChatSave: "codexAppSideChatSave",
     markdownExport: "codexAppMarkdownExport",
     sessionShare: "codexAppSessionShare",
     threadIdBadge: "codexAppThreadIdBadge",
     conversationView: "codexAppConversationView",
-    whaleWidget: "codexAppWhaleWidgetEnabled",
     threadScrollRestore: "codexAppThreadScrollRestore",
+    historyTurnRecovery: "codexAppHistoryTurnRecovery",
     nativeMenuPlacement: "codexAppNativeMenuPlacement",
-    serviceTierControls: "codexAppServiceTierControls",
+    nativeFastUnlock: "codexAppNativeFastUnlock",
     petRealMouseLook: "codexAppPetRealMouseLook",
     activityOverlayRight: "codexAppActivityOverlayRight",
     stepwise: "codexAppStepwiseEnabled",
     answerOutline: "codexAppAnswerOutlineEnabled",
     usageStatusLine: "codexAppUsageStatusLine",
     capacityAutoRetry: "codexAppCapacityAutoRetry",
+    turnRewind: "codexAppTurnRewind",
     pasteFix: "codexAppPasteFix",
     typingEffect: "codexAppTypingEffect",
     dreamSkinEnabled: "codexAppDreamSkinEnabled",
@@ -1929,23 +1904,26 @@
         pluginMarketplaceUnlock: false,
         modelWhitelistUnlock: false,
         sessionDelete: false,
+        sessionDeleteSkipConfirm: false,
         markdownExport: false,
         sessionShare: false,
+        sideChatSave: false,
         pasteFix: false,
         typingEffect: "off",
         threadIdBadge: false,
         conversationView: false,
-        whaleWidget: false,
         conversationViewMaxWidth: conversationViewDefaultWidth,
         threadScrollRestore: false,
+        historyTurnRecovery: false,
         nativeMenuPlacement: false,
-        serviceTierControls: false,
+        nativeFastUnlock: false,
         petRealMouseLook: false,
         activityOverlayRight: false,
         stepwise: false,
         answerOutline: false,
         usageStatusLine: false,
         capacityAutoRetry: false,
+        turnRewind: false,
         capacityAutoRetryMaxAttempts: 15,
         capacityAutoRetryIntervalSeconds: 0,
         dreamSkinEnabled: false,
@@ -1957,6 +1935,7 @@
     try {
       const settings = { ...defaultCodexPlusSettings(), ...JSON.parse(localStorage.getItem(codexPlusSettingsKey) || "{}"), ...backendCodexPlusSettings() };
       delete settings.customLayout;
+      delete settings.serviceTierControls;
       return settings;
     } catch {
       const settings = { ...defaultCodexPlusSettings(), ...backendCodexPlusSettings() };
@@ -2666,14 +2645,40 @@
     ensure();
   }
 
+  /**
+   * 本轮皮肤刷新该做什么（纯函数，供测试切片）：
+   *   - "cleanup"：设置明确关闭或暂停皮肤；
+   *   - "install"：内置运行时按设置安装；
+   *   - "ensure"：外部运行时已在页面里，补主区域兼容标记并刷新；
+   *   - "idle"：外部运行时未安装、设置也还没读到，只做无副作用的刷新。
+   * 外部运行时由注入脚本按注入时的设置直接安装。重启 Codex 后首次 /backend/status
+   * 可能超时、页面还会被启动壳自救重载（#2680），这期间设置读不到，不能因此不补
+   * 主区域兼容标记，否则皮肤选择器对不上主区域，整页看起来没换肤。
+   */
+  function dreamSkinRefreshAction({ enabled, paused, backendLoaded, externalRuntime, runtimeInstalled }) {
+    if (externalRuntime) {
+      if (backendLoaded) return enabled && !paused ? "ensure" : "cleanup";
+      return runtimeInstalled ? "ensure" : "idle";
+    }
+    return enabled && !paused ? "install" : "cleanup";
+  }
+
   function refreshDreamSkin() {
     const settings = codexPlusSettings();
-    if (settings.dreamSkinEnabled && !settings.dreamSkinPaused) ensureDreamSkinMainSurface();
+    const runtimeState = window.__CODEX_DREAM_SKIN_STATE__ || window.__CODEX_GLASS_VISION_SKIN_STATE__;
+    const action = dreamSkinRefreshAction({
+      enabled: !!settings.dreamSkinEnabled,
+      paused: !!settings.dreamSkinPaused,
+      backendLoaded: !!codexPlusBackendSettingsLoaded,
+      externalRuntime: !!window.__CODEX_PLUS_EXTERNAL_DREAM_SKIN_RUNTIME__,
+      runtimeInstalled: !!runtimeState,
+    });
+    if (action === "ensure" || action === "install") ensureDreamSkinMainSurface();
     if (window.__CODEX_PLUS_EXTERNAL_DREAM_SKIN_RUNTIME__) {
-      if (codexPlusBackendSettingsLoaded && (!settings.dreamSkinEnabled || settings.dreamSkinPaused)) {
+      if (action === "cleanup") {
         cleanupDreamSkin();
       } else {
-        const state = window.__CODEX_DREAM_SKIN_STATE__ || window.__CODEX_GLASS_VISION_SKIN_STATE__;
+        const state = runtimeState;
         state?.ensure?.();
         ensureDreamSkinCompanion(
           window.__CODEX_PLUS_DREAM_SKIN_THEME__ || settings.dreamSkinThemeConfig,
@@ -2716,6 +2721,7 @@
         }
         // 容量错误自动重试：开关落库后立即启停轮询，不必等下一次心跳。
         if (key === "capacityAutoRetry") syncCodexPlusCapacityAutoRetry();
+        if (key === "turnRewind") syncCodexPlusTurnRewind();
       }).catch(() => {
         void loadBackendSettings();
       });
@@ -2739,14 +2745,6 @@
       (window.__codexThreadScrollSyncTimers || []).forEach((timer) => clearTimeout(timer));
       window.__codexThreadScrollSyncTimers = [];
       window.__codexThreadScrollRuntime = null;
-    }
-    if (key === "serviceTierControls") {
-      if (value) {
-        void loadCodexServiceTierState();
-      } else {
-        removeCodexServiceTierBadges();
-        refreshCodexServiceTierControls();
-      }
     }
     if (key === "stepwise") syncStepwisePanel(value);
     renderCodexPlusMenu();
