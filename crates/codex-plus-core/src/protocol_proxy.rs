@@ -288,6 +288,13 @@ const UPSTREAM_SLOW_HEADER_TIMEOUT: Duration = Duration::from_secs(600);
 /// 会让采样/压缩无故失败，两次短退避能把大部分瞬时故障挡在本地。
 const UPSTREAM_CONNECT_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(150), Duration::from_millis(400)];
+/// 复用连接被对端关闭时，只有请求发出后这么短时间内就断开才换新连接重发（#2761）。
+///
+/// 空闲连接早已被对端关掉、本地还没察觉时，请求一写出去就会读到 EOF，几乎是立刻失败；
+/// 而上游收全请求、处理到一半才被中转或 NAT 断开时，往往已经过了一段时间，
+/// 这时重发会让非流式 / 压缩请求在上游完整执行两次（重复计费），所以超过这个时长断开的原样报错。
+/// 请求根本没发出去的情况由底层 HTTP 库自己重试，不归这里管。
+const UPSTREAM_STALE_CONNECTION_RETRY_WINDOW: Duration = Duration::from_secs(1);
 
 /// 容量错误自动重试：单次等待上限，避免把 Codex 的请求挂太久。
 const PROXY_AUTO_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
@@ -556,6 +563,10 @@ enum StreamCommitMode {
     Immediate,
     /// 工具调用参数整项缓冲，首段可见输出后再等宽限窗口才提交。
     VisibleGrace,
+    /// 只按住响应生命周期事件（response.created 等），之后第一个事件就提交。
+    /// 没开「请求避震」时只为识别「先回 200、流里才拒收加密内容」（#2777）预读，
+    /// 不能为此拖慢推理摘要等内容的转发。
+    PreOutputOnly,
 }
 
 /// 流式预读的提交策略：决定什么时候把已缓冲字节交给 Codex。
@@ -595,6 +606,14 @@ impl StreamStartCommitPolicy {
             ..self
         }
     }
+
+    /// 没开「请求避震」、只为识别流内拒收加密内容（#2777）预读时的提交时机。
+    fn pre_output_only() -> Self {
+        Self {
+            mode: StreamCommitMode::PreOutputOnly,
+            first_visible_grace: Duration::ZERO,
+        }
+    }
 }
 
 /// 预读阶段单个事件的分类。
@@ -619,6 +638,14 @@ fn stream_start_event_kind(
     event: &str,
     mode: StreamCommitMode,
 ) -> StreamStartEventKind {
+    // 只按住生命周期事件：第一个其它事件（含推理增量、失败事件）就结束预读。
+    if mode == StreamCommitMode::PreOutputOnly {
+        return if is_pre_output_stream_event(event) {
+            StreamStartEventKind::Hold
+        } else {
+            StreamStartEventKind::Terminal
+        };
+    }
     if stream_event_is_retry_safe(block, event) {
         return StreamStartEventKind::Hold;
     }
@@ -819,9 +846,9 @@ fn stream_failure_payload(block: &str) -> (Option<String>, Option<String>) {
         .and_then(Value::as_str)
         .or_else(|| json.get("code").and_then(Value::as_str))
         .map(ToString::to_string);
+    // 有的上游（如 xAI）把 `error` 直接写成字符串：这时它本身就是 message。
     let message = error
-        .and_then(|error| error.get("message"))
-        .and_then(Value::as_str)
+        .and_then(|error| error.as_str().or_else(|| error.get("message")?.as_str()))
         .or_else(|| json.get("message").and_then(Value::as_str))
         .map(ToString::to_string);
     (code, message)
@@ -1870,6 +1897,58 @@ pub struct ProxySessionHeaders<'a> {
     pub session_id: Option<&'a str>,
     pub thread_id: Option<&'a str>,
     pub opencode_session: Option<&'a str>,
+    /// Codex 的客户端身份头（`originator`、`x-codex-*` 等，见 [`CODEX_CLIENT_IDENTITY_HEADERS`]）。
+    /// 只有 Codex 经网关时才非空，原样发给 Responses 上游（#2783）。
+    pub client_identity: &'a [(String, String)],
+}
+
+/// Codex 经网关时原样透传给上游的客户端身份 / 会话头（#2783）。
+///
+/// 中转站（如开了「仅允许 Codex 官方客户端」的 sub2api）按 UA、`originator` 和
+/// `x-codex-*` 头判断是不是官方客户端；网关只转发 UA 时会被 403 拒绝。
+/// 名单只收身份与会话类的头：鉴权、Host、Content-Length、Cookie 等一律不在其中；
+/// `x-codex-turn-state` 是上游签发的粘性路由令牌，网关可能换上游，不透传。
+pub const CODEX_CLIENT_IDENTITY_HEADERS: &[&str] = &[
+    "originator",
+    "x-codex-beta-features",
+    "x-codex-window-id",
+    "x-codex-turn-metadata",
+    "x-codex-installation-id",
+    "x-codex-parent-thread-id",
+    "x-openai-subagent",
+    "x-client-request-id",
+];
+
+/// 每轮甚至每个请求都会变的身份头：不参与 exec 适配协商缓存的键，否则缓存每轮都失效。
+pub(crate) fn is_volatile_client_identity_header(name: &str) -> bool {
+    [
+        "x-codex-window-id",
+        "x-codex-turn-metadata",
+        "x-codex-parent-thread-id",
+        "x-client-request-id",
+    ]
+    .iter()
+    .any(|volatile| name.eq_ignore_ascii_case(volatile))
+}
+
+/// 从原始 HTTP 请求头文本（首行是请求行）里取出 [`CODEX_CLIENT_IDENTITY_HEADERS`] 里的头。
+pub fn codex_client_identity_headers(raw_headers: &str) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    for line in raw_headers.lines().skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let name = name.trim().to_ascii_lowercase();
+        let value = value.trim();
+        if value.is_empty()
+            || !CODEX_CLIENT_IDENTITY_HEADERS.contains(&name.as_str())
+            || found.iter().any(|(seen, _): &(String, String)| *seen == name)
+        {
+            continue;
+        }
+        found.push((name, value.to_string()));
+    }
+    found
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -1959,19 +2038,73 @@ pub async fn send_upstream_request_for_responses(
     send_upstream_request_with_header_timeout(request, timeout).await
 }
 
+/// 连接在收到任何响应字节前就被对端关闭（hyper 的 IncompleteMessage）。
+/// hyper 不是直接依赖，按错误链里的固定文案识别。
+fn is_closed_before_response(error: &reqwest::Error) -> bool {
+    if error.is_connect() || error.is_timeout() || error.is_status() {
+        return false;
+    }
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(current) = source {
+        if current
+            .to_string()
+            .contains("connection closed before message completed")
+        {
+            return true;
+        }
+        source = current.source();
+    }
+    false
+}
+
 pub async fn send_upstream_request_with_header_timeout(
     request: reqwest::RequestBuilder,
     timeout: Duration,
 ) -> anyhow::Result<reqwest::Response> {
+    // 拓展网关中间件加的请求头（只在模型请求的那次 future 里有）。
+    let mut request = request;
+    for (name, value) in crate::extension_gateway::extension_headers() {
+        request = request.header(name, value);
+    }
     // RequestBuilder 只有在 body 可克隆时才能重试；不可克隆时保持单次请求。
     let retry_source = request.try_clone();
     let mut pending = Some(request);
     let mut retries = 0_usize;
+    let mut stale_connection_retried = false;
+    // 复用连接失效后的重发不重新计满响应头超时：重发那次只等首次剩下的时间。
+    let mut attempt_timeout = timeout;
     loop {
         let builder = pending.take().expect("upstream request builder missing");
-        match tokio::time::timeout(timeout, builder.send()).await {
+        let (client, request) = builder.build_split();
+        let mut request = request.context("构造上游请求失败")?;
+        crate::extension_gateway::refresh_response_passthrough(&mut request);
+        let attempt_started = Instant::now();
+        match tokio::time::timeout(attempt_timeout, client.execute(request)).await {
             Ok(Ok(response)) => return Ok(response),
             Ok(Err(error)) => {
+                // 上游 client 复用连接（#2761）后，空闲连接可能刚被对端关掉、本地还没察觉：
+                // 请求写出去后连一个响应字节都没收到就断了。只有发出后很快就断开（见
+                // UPSTREAM_STALE_CONNECTION_RETRY_WINDOW）才认为是旧连接失效、换新连接重发一次；
+                // 过了这段时间才断开的，可能是上游已收全请求、处理到一半被中间设备断开，
+                // 重发会让请求在上游执行两次，原样报错。只重发一次，再断就照常报错。
+                let elapsed = attempt_started.elapsed();
+                if !stale_connection_retried
+                    && elapsed < UPSTREAM_STALE_CONNECTION_RETRY_WINDOW
+                    && is_closed_before_response(&error)
+                    && let Some(retry) = retry_source.as_ref().and_then(|source| source.try_clone())
+                {
+                    stale_connection_retried = true;
+                    attempt_timeout = attempt_timeout.saturating_sub(elapsed);
+                    let _ = crate::diagnostic_log::append_diagnostic_log(
+                        "protocol_proxy.upstream_stale_connection_retry",
+                        json!({
+                            "elapsedMs": elapsed.as_millis(),
+                            "error": error_chain(&anyhow::Error::new(error))
+                        }),
+                    );
+                    pending = Some(retry);
+                    continue;
+                }
                 // 只重试连接/TLS 握手失败：此时请求体尚未送达上游，重试是幂等的。
                 // 超时和其它错误可能已经在上游产生副作用，原样返回。
                 let retry_delay = error
@@ -3027,6 +3160,15 @@ impl ChatSseToResponsesConverter {
         self.state.latest_usage.as_ref()
     }
 
+    /// 本次请求的用量（请求日志 / 网关用量统计用），按上游原始 usage 解析，
+    /// 口径与非流式请求一致（#2803）。
+    pub(crate) fn request_usage(&self) -> Option<crate::request_log::RequestUsage> {
+        self.state
+            .upstream_usage
+            .as_ref()
+            .and_then(crate::request_log::usage_from_usage_value)
+    }
+
     pub fn push_bytes(&mut self, bytes: &[u8]) -> Vec<u8> {
         append_utf8_safe(&mut self.buffer, &mut self.utf8_remainder, bytes);
         let mut output = String::new();
@@ -3347,6 +3489,10 @@ pub async fn open_responses_proxy_request_for_relay(
     .await
 }
 
+/// 拓展的失败重试（gateway.error）最多让同一个请求重发几次。
+const EXTENSION_RETRY_LIMIT: usize = 3;
+
+#[allow(clippy::too_many_arguments)]
 async fn open_responses_proxy_request_with_settings_and_user_agent(
     body: &str,
     settings: crate::settings::BackendSettings,
@@ -3357,7 +3503,111 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
     live_request_id: Option<&str>,
     forced: Option<ForcedRelay>,
 ) -> anyhow::Result<UpstreamProxyResponse> {
-    set_message_phase_fill(settings.codex_app_third_party_reasoning_collapse);
+    // 拓展中间件加的请求头只在这一次请求里有效。
+    crate::extension_gateway::EXTENSION_HEADERS
+        // 装箱：整条代理请求的 future 很大，debug 构建下内联在栈上会把常驻 helper 的线程栈撑爆。
+        .scope(
+            std::cell::RefCell::new(Vec::new()),
+            crate::extension_gateway::REQUEST_SESSION.scope(
+                std::cell::RefCell::new(String::new()),
+                Box::pin(open_responses_proxy_request_with_extensions(
+                    body, settings, original_user_agent, request_path, beta_features, session_headers, live_request_id, forced,
+                )),
+            ),
+        )
+        .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn open_responses_proxy_request_with_extensions(
+    body: &str,
+    settings: crate::settings::BackendSettings,
+    original_user_agent: Option<&str>,
+    request_path: &str,
+    beta_features: Option<&str>,
+    session_headers: ProxySessionHeaders<'_>,
+    live_request_id: Option<&str>,
+    forced: Option<ForcedRelay>,
+) -> anyhow::Result<UpstreamProxyResponse> {
+    // 拓展的网关请求中间件：在 Codex++ 自己的转换之前改写原始 Responses 请求，每个请求只跑一次
+    // （失败重试不再重跑）。没有拓展声明时零开销。
+    let mut request_json: Value = serde_json::from_str(body)?;
+    if let Some(session) = request_json.get("prompt_cache_key").and_then(Value::as_str) {
+        crate::extension_gateway::set_request_session(session);
+    }
+    if let Err(reason) = crate::extension_gateway::apply_request(&mut request_json, request_path).await {
+        // 拓展拒绝了这一步：不发给模型、也不进失败重试，直接回一个 Codex 能显示原因的错误。
+        return extension_rejected_response(&reason);
+    }
+    let mut body = request_json.to_string();
+    let mut attempt = 0;
+    loop {
+        let mut response = Box::pin(open_responses_proxy_request_once(
+            &body,
+            settings.clone(),
+            original_user_agent,
+            request_path,
+            beta_features,
+            session_headers,
+            live_request_id,
+            forced.clone(),
+        ))
+        .await?;
+        if response.is_success() || attempt >= EXTENSION_RETRY_LIMIT {
+            return Ok(response);
+        }
+        // 拓展说要重试就按它给的间隔重发，要降级就换模型重发；没有拓展声明 gateway.error 时直接返回，零开销。
+        match crate::extension_gateway::decide_retry(&mut response, request_path, attempt).await {
+            Some(decision) => {
+                attempt += 1;
+                if let Some(model) = decision.model {
+                    request_json["model"] = json!(model);
+                    body = request_json.to_string();
+                }
+                tokio::time::sleep(decision.delay).await;
+            }
+            None => return Ok(response),
+        }
+    }
+}
+
+/// 拓展网关中间件拒绝了这一步：回一个 Codex 能显示原因的 400 错误。
+fn extension_rejected_response(reason: &str) -> anyhow::Result<UpstreamProxyResponse> {
+    Ok(UpstreamProxyResponse {
+        status_code: 400,
+        content_type: "application/json".to_string(),
+        is_stream: false,
+        wire_api: UpstreamWireApi::Responses,
+        compaction: false,
+        native_compaction_passthrough: false,
+        buffered_body: Some(serde_json::to_vec(&json!({
+            "error": { "type": "invalid_request_error", "code": "extension_rejected", "message": reason }
+        }))?),
+        stream_prefix: Vec::new(),
+        request_trace: None,
+        exec_adapted: false,
+        exec_outcome: None,
+        response: None,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn open_responses_proxy_request_once(
+    body: &str,
+    settings: crate::settings::BackendSettings,
+    original_user_agent: Option<&str>,
+    request_path: &str,
+    beta_features: Option<&str>,
+    session_headers: ProxySessionHeaders<'_>,
+    live_request_id: Option<&str>,
+    forced: Option<ForcedRelay>,
+) -> anyhow::Result<UpstreamProxyResponse> {
+    // 拓展可以用 gateway.replaces 关掉内置的推理折叠、本地压缩、exec 适配，自己在 upstream 段里做。
+    set_message_phase_fill(
+        settings.codex_app_third_party_reasoning_collapse
+            && !crate::extension_gateway::builtin_replaced("builtin:reasoning-collapse")
+            && !crate::builtin_takeover::replaced("reasoning-collapse"),
+    );
     let mut request_json: Value = serde_json::from_str(body)?;
     expand_local_compaction_history(&mut request_json);
     let local_compaction_request = !is_responses_compact_proxy_path(request_path)
@@ -3428,6 +3678,8 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
     if aggregate_model.is_none()
         && model_route.is_none()
         && forced.is_none()
+        // 拓展用 gateway.replaces 关掉了目录外模型映射：模型名原样转发，映射由拓展在 request 段自己做。
+        && !crate::extension_gateway::builtin_replaced("builtin:unlisted-model-mapping")
         && let Some(replacement) = unlisted_model_replacement(&settings, &source_model)
     {
         log_unlisted_model_mapping(&source_model, &replacement);
@@ -3447,10 +3699,25 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
     } else {
         let relay = crate::relay_rotation::select_relay_for_request(&settings, context)?;
         let mut relays = vec![relay.clone()];
-        relays.extend(crate::relay_rotation::fallback_relays_after(
-            &settings, &relay.id,
-        )?);
-        (relay, relays)
+        // 拓展用 gateway.replaces 关掉了内置轮换的失败切换：只用选中的这一个。
+        if !crate::extension_gateway::builtin_replaced("builtin:relay-rotation") {
+            relays.extend(crate::relay_rotation::fallback_relays_after(
+                &settings, &relay.id,
+            )?);
+        }
+        // 拓展网关中间件的 route 段：按拓展给的顺序重排 / 筛选候选供应商。
+        let candidates: Vec<Value> = relays
+            .iter()
+            .map(|item| json!({ "id": item.id, "name": item.name, "protocol": item.protocol }))
+            .collect();
+        let route_context = json!({ "model": source_model, "conversationId": conversation_id_from_responses_request(&request_json) });
+        if let Some(order) = crate::extension_gateway::route_order(&candidates, route_context).await {
+            relays = order
+                .iter()
+                .filter_map(|id| relays.iter().find(|item| &item.id == id).cloned())
+                .collect();
+        }
+        (relays[0].clone(), relays)
     };
     debug_assert_eq!(
         relays.first().map(|item| item.id.as_str()),
@@ -3460,7 +3727,13 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
     let strict_aggregate_model = aggregate_model.is_some() || forced.is_some();
     let relay_count = relays.len();
     let mut exec_negotiation_used = false;
-    let mut auto_retry = if forced.as_ref().is_some_and(|forced| !forced.auto_retry) {
+    // 网关模式（#2802）：上游 429 不在这里对同一个 Key 退避重发——那只会让同一个 Key 在限流中
+    // 再挨几次、拖住换 Key；交给网关去冷却这个 Key、换下一个，或都在冷却时等最早恢复的那个。
+    let gateway_forced = forced.is_some();
+    // 拓展用 gateway.replaces 关掉了「请求避震」：上游错误原样交回，要不要重发交给拓展的 gateway.error。
+    let mut auto_retry = if forced.as_ref().is_some_and(|forced| !forced.auto_retry)
+        || crate::extension_gateway::builtin_replaced("builtin:auto-retry")
+    {
         None
     } else {
         ProxyAutoRetry::from_settings(&settings)
@@ -3469,6 +3742,12 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
     let buffered_mode = settings.protocol_proxy_auto_retry_mode == "buffered";
     let commit_policy = StreamStartCommitPolicy::from_settings(&settings);
     let mut retry_reasons: Vec<String> = Vec::new();
+    // 因别家签发的加密内容被拒而重发的次数（#2777），整个请求共用，不占「请求避震」的预算。
+    let mut foreign_retries = 0_u32;
+    // 这次请求去掉过别家签发的压缩上下文（#2777）：请求日志里单独标出来，较早的对话内容上游已看不到。
+    let mut foreign_compaction_dropped = false;
+    // 上游不收推理项的明文 content、已清空后重发过（#2917）：每个请求只重发这一次，不占上面两项的预算。
+    let mut reasoning_content_retried = false;
     let mut request_trace = crate::request_log::RequestTrace {
         model: source_model.clone(),
         ..Default::default()
@@ -3542,8 +3821,9 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
         {
             logical_body["model"] = json!(model);
         }
-        let experimental_local_compaction =
-            local_compaction_request && relay.local_compaction_prompt_at_end_enabled();
+        let experimental_local_compaction = local_compaction_request
+            && relay.local_compaction_prompt_at_end_enabled()
+            && !crate::extension_gateway::builtin_replaced("builtin:local-compaction");
         let cache_key = relay.local_compaction_prompt_at_end_enabled()
             .then(|| local_compaction::key(&relay, &logical_body, session_headers))
             .flatten();
@@ -3640,13 +3920,60 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
         request_trace.relay_id = relay.id.clone();
         request_trace.relay_name = relay.name.clone();
         request_trace.wire_api = upstream_wire_api_label(wire_api).to_string();
-        request_trace.upstream_model = upstream_body
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
         // Codex 托管的网关供应商：这一跳的上游就是本机网关，它自己按候选控制超时。
         let via_gateway = relay.id == crate::gateway::apply::CODEX_GATEWAY_RELAY_ID;
+        // 别家签发的加密内容（#2777）：只在发往真实上游时处理（网关那一跳由网关自己处理）；
+        // 「严格推理历史」的约定是认证失败不降级，开着时不动。
+        // 拓展用 gateway.replaces 关掉 builtin:foreign-reasoning 时同样不动：加密项原样发出，拒收也不重发。
+        let foreign_reasoning_handled = wire_api == UpstreamWireApi::Responses
+            && !via_gateway
+            && !relay.strict_responses_reasoning
+            && !crate::extension_gateway::builtin_replaced("builtin:foreign-reasoning");
+        // 被拒记忆按「供应商 + 这次实际使用的 Key / 账号」分开记（网关展开的 Key 候选、本地代理选中的 Key 都在
+        // relay.api_key 里；官方登录成员按账号）。
+        let foreign_scope = foreign_reasoning_scope(&relay, official_credential.as_ref());
+        let mut compaction_dropped_now = false;
+        if foreign_reasoning_handled {
+            // reasoning 与 compaction / compaction_summary 项一并按记忆提前去掉。
+            let skipped =
+                crate::foreign_reasoning::strip_remembered(&foreign_scope, &mut upstream_body);
+            if skipped.total() > 0 {
+                let _ = crate::diagnostic_log::append_diagnostic_log(
+                    "protocol_proxy.foreign_reasoning_skipped",
+                    json!({
+                        "relayId": relay.id,
+                        "relayName": relay.name,
+                        "skipped": skipped.total(),
+                        "compaction": skipped.compaction
+                    }),
+                );
+            }
+            compaction_dropped_now = skipped.compaction > 0;
+            // 刚因拒收去掉压缩项而重发时，重发前已记过诊断日志，这里不重复记。
+            if compaction_dropped_now && !foreign_compaction_dropped {
+                log_foreign_compaction_dropped(&relay, skipped.compaction, "remembered");
+            }
+        }
+        // 按这次实际发出的请求算：换到别的候选、压缩项没被去掉时不再标出。
+        foreign_compaction_dropped = compaction_dropped_now;
+        // #2917：这家（供应商 + Key / 账号）的这个模型拒收过推理项的明文 content，提前清空。
+        // 拒收重发时请求从头重建，也是靠这里清空。
+        if foreign_reasoning_handled {
+            let emptied = crate::foreign_reasoning::strip_remembered_reasoning_content(
+                &foreign_scope,
+                &mut upstream_body,
+            );
+            if emptied > 0 {
+                let _ = crate::diagnostic_log::append_diagnostic_log(
+                    "protocol_proxy.reasoning_content_skipped",
+                    json!({
+                        "relayId": relay.id,
+                        "relayName": relay.name,
+                        "emptied": emptied
+                    }),
+                );
+            }
+        }
         let header_timeout =
             responses_request_header_timeout(is_stream, is_compaction_request, via_gateway);
         let _ = crate::diagnostic_log::append_diagnostic_log(
@@ -3679,7 +4006,38 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
             && !xai_upstream
             && !is_compaction_request
             && !experimental_local_compaction
+            && !crate::extension_gateway::builtin_replaced("builtin:exec-adapt")
             && crate::responses_exec::should_adapt_request(&upstream_body, request_path);
+        // 拓展网关中间件的 upstream 段：Codex++ 自己的压缩、路由、协议转换之后，改真正发给这个上游的请求体。
+        // 换候选重发时每次都跑（候选不同，请求体也不同）。拒绝时同 request 段，直接回带原因的错误。
+        let mut upstream_context = json!({
+            "stage": "upstream",
+            "wireApi": wire_api,
+            "relay": { "id": relay.id, "name": relay.name, "protocol": relay.protocol },
+            "model": upstream_body.get("model").cloned().unwrap_or(Value::Null),
+            "attempt": attempt + 1,
+            "endpoint": endpoint,
+            "official": official_member,
+            // 请求体是否还是 Responses 形状（拓展关掉了 builtin:request-conversion）。
+            "requestConversion": if crate::extension_gateway::builtin_replaced("builtin:request-conversion") { "extension" } else { "builtin" },
+        });
+        // 拓展关掉 builtin:auth-headers 时由它自己设鉴权头：这一个候选的 Key 只交给声明了它的拓展的中间件
+        // （见 extension_gateway::apply_middlewares），官方登录成员与转给本机网关的这一跳仍由 Codex++ 认证。
+        if !official_member
+            && !via_gateway
+            && crate::extension_gateway::builtin_replaced("builtin:auth-headers")
+        {
+            upstream_context["__credential"] = json!({ "apiKey": relay.api_key.trim(), "protocol": relay.protocol });
+        }
+        if let Err(reason) = crate::extension_gateway::apply_upstream_request(&mut upstream_body, request_path, upstream_context)
+        .await
+        {
+            return Ok(extension_rejected_response(&reason)?);
+        }
+        request_trace.bind_upstream_model(&upstream_body);
+        if let Some(id) = live_request_id {
+            crate::request_log::update_running_route(id, &request_trace, is_stream);
+        }
         let mut key = None;
         let mut exec_adapted = forced_adapted;
         let send = async {
@@ -3826,6 +4184,97 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
                             "error": error_chain(&error)
                         }),
                     );
+                }
+            }
+        }
+
+        // #2777：上游明确说历史里的加密内容校验不过（多半是同一对话里上一家签发的），
+        // 去掉一批加密项（先推理、后压缩结果）后对同一候选重发；没报这个错的请求不预读、不改动。
+        // 各家拒收的状态码不一，4xx 都看，但只认错误体里的措辞。
+        // #2917：上游说推理项的 content 必须为空（别家转换回来的明文思考），清空后对同一候选重发一次。
+        let foreign_rejection_possible = foreign_retries < crate::foreign_reasoning::MAX_RETRIES
+            && crate::foreign_reasoning::has_encrypted_items(&upstream_body);
+        let content_rejection_possible = !reasoning_content_retried
+            && crate::foreign_reasoning::has_reasoning_content(&upstream_body);
+        if foreign_reasoning_handled
+            && (400..500).contains(&status_code)
+            && (foreign_rejection_possible || content_rejection_possible)
+        {
+            let mut error_text = String::new();
+            let mut rejection = None;
+            let sent_body = &upstream_body;
+            let inspected = crate::responses_exec_transport::inspect_error_body(
+                upstream,
+                |status, _, body| {
+                    if content_rejection_possible
+                        && crate::foreign_reasoning::is_reasoning_content_rejection(
+                            status, body, sent_body,
+                        )
+                    {
+                        rejection = Some(HistoryRejection::ReasoningContent);
+                    } else if foreign_rejection_possible
+                        && crate::foreign_reasoning::is_unverifiable_reasoning_rejection(status, body)
+                    {
+                        rejection = Some(HistoryRejection::EncryptedContent);
+                    }
+                    if rejection.is_some() {
+                        error_text = String::from_utf8_lossy(body).into_owned();
+                    }
+                    rejection.is_some()
+                },
+            )
+            .await;
+            match inspected {
+                Ok((_, true))
+                    if match rejection {
+                        Some(HistoryRejection::ReasoningContent) => {
+                            prepare_reasoning_content_retry(
+                                &relay,
+                                &mut upstream_body,
+                                "http_status",
+                                is_stream,
+                                &mut reasoning_content_retried,
+                                &mut retry_reasons,
+                                &foreign_scope,
+                            )
+                        }
+                        Some(HistoryRejection::EncryptedContent) => {
+                            prepare_foreign_reasoning_retry(
+                                &relay,
+                                &mut upstream_body,
+                                &error_text,
+                                "http_status",
+                                is_stream,
+                                &mut foreign_retries,
+                                &mut retry_reasons,
+                                &foreign_scope,
+                                &mut foreign_compaction_dropped,
+                            )
+                        }
+                        None => false,
+                    } =>
+                {
+                    candidate_index = attempt;
+                    continue 'request_attempts;
+                }
+                Ok((response, _)) => upstream = response,
+                Err(error) => {
+                    if exec_adapted && let Some(key) = key.as_ref() {
+                        crate::responses_exec_transport::evict(key);
+                    }
+                    if !strict_aggregate_model {
+                        crate::relay_rotation::record_relay_request_failure(&settings);
+                    }
+                    if has_more_candidates {
+                        continue;
+                    }
+
+                    return Err(error).with_context(|| {
+                        format!(
+                            "供应商「{}」请求上游失败，endpoint: {}",
+                            relay.name, endpoint
+                        )
+                    });
                 }
             }
         }
@@ -4138,6 +4587,8 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
                 .to_string();
         }
 
+        // 内置兼容回退也可能重建请求体；最终返回的 trace 绑定最后一次发送。
+        request_trace.bind_upstream_model(&upstream_body);
         if let Some(id) = live_request_id {
             crate::request_log::update_running_phase(id, "waiting");
         }
@@ -4198,7 +4649,9 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
             let retry_after = exec_retry_after_duration(upstream.headers(), SystemTime::now());
             let scheduled = auto_retry
                 .as_mut()
-                .filter(|retry| retry.retries_status(status_code))
+                .filter(|retry| {
+                    retry.retries_status(status_code) && !(gateway_forced && status_code == 429)
+                })
                 .and_then(|retry| {
                     retry
                         .schedule(retry_after)
@@ -4245,6 +4698,13 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
         // 200 的流式响应也可能带着 response.failed（官方 server_overloaded
         // 就是先回 200 再在流里失败）。在向 Codex 写出任何字节前先预读；
         // 若识别到容量失败就退避后重发同一次上游请求。
+        //
+        // 拒收别家签发的加密内容（#2777）也可能这样发生（ChatGPT 后端、Grok 先回 200 和
+        // response.created，再发 response.failed / error）。只要还没提交给 Codex，同样去掉一批
+        // 加密项后重发；没开「请求避震」时也为此预读，但只按住生命周期事件，不拖慢正常转发。
+        let foreign_stream_watch = foreign_reasoning_handled
+            && foreign_retries < crate::foreign_reasoning::MAX_RETRIES
+            && crate::foreign_reasoning::has_encrypted_items(&upstream_body);
         let mut stream_prefix = Vec::new();
         if is_stream
             && (200..300).contains(&status_code)
@@ -4263,6 +4723,50 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
                 } => {
                     if let Some(first_output_at_ms) = first_output_at_ms {
                         request_trace.first_output_at_ms = Some(first_output_at_ms);
+                    }
+                    // 整段缓冲：还没向 Codex 写出任何字节，流内拒收推理明文（#2917）可以清空后重发。
+                    if foreign_reasoning_handled
+                        && !reasoning_content_retried
+                        && let Some((code, message)) = terminal_failure.as_ref()
+                        && crate::foreign_reasoning::is_reasoning_content_stream_failure(
+                            code.as_deref(),
+                            message.as_deref(),
+                            &upstream_body,
+                        )
+                        && prepare_reasoning_content_retry(
+                            &relay,
+                            &mut upstream_body,
+                            "buffered_stream",
+                            is_stream,
+                            &mut reasoning_content_retried,
+                            &mut retry_reasons,
+                            &foreign_scope,
+                        )
+                    {
+                        candidate_index = attempt;
+                        continue 'request_attempts;
+                    }
+                    // 整段缓冲：还没向 Codex 写出任何字节，流内拒收加密内容可以重发。
+                    if foreign_stream_watch
+                        && let Some((code, message)) = terminal_failure.as_ref()
+                        && crate::foreign_reasoning::is_unverifiable_stream_failure(
+                            code.as_deref(),
+                            message.as_deref(),
+                        )
+                        && prepare_foreign_reasoning_retry(
+                            &relay,
+                            &mut upstream_body,
+                            message.as_deref().or(code.as_deref()).unwrap_or(""),
+                            "buffered_stream",
+                            is_stream,
+                            &mut foreign_retries,
+                            &mut retry_reasons,
+                            &foreign_scope,
+                            &mut foreign_compaction_dropped,
+                        )
+                    {
+                        candidate_index = attempt;
+                        continue 'request_attempts;
                     }
                     if let Some((code, message)) = terminal_failure
                         && stream_failure_is_retryable(code.as_deref(), message.as_deref())
@@ -4300,8 +4804,7 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
                         }
                     }
                     request_trace.attempts = request_attempt as u32;
-                    request_trace.auto_retries = retry_reasons.len() as u32;
-                    request_trace.retry_reasons = retry_reasons.clone();
+                    fill_retry_trace(&mut request_trace, &retry_reasons, foreign_compaction_dropped);
                     return Ok(UpstreamProxyResponse {
                         status_code,
                         is_stream: true,
@@ -4333,17 +4836,15 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
             && !is_compaction_request
             && !experimental_local_compaction
             && !exec_adapted
-            && auto_retry.is_some()
+            && (auto_retry.is_some() || foreign_stream_watch)
         {
             // 重试预算已用尽时再缓冲没有收益，直接退回旧提交时机，
-            // 避免为首字白等一个宽限窗口。
-            let attempt_commit_policy = if auto_retry
-                .as_ref()
-                .is_some_and(|retry| retry.remaining > 0)
-            {
-                commit_policy
-            } else {
-                commit_policy.without_retry_budget()
+            // 避免为首字白等一个宽限窗口。没开「请求避震」、只为流内拒收加密内容预读时，
+            // 只按住生命周期事件。
+            let attempt_commit_policy = match auto_retry.as_ref() {
+                Some(retry) if retry.remaining > 0 => commit_policy,
+                Some(_) => commit_policy.without_retry_budget(),
+                None => StreamStartCommitPolicy::pre_output_only(),
             };
             match peek_responses_stream_start(
                 &mut upstream,
@@ -4367,8 +4868,51 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
                     message,
                     first_output_at_ms,
                 } => {
-                    let retryable =
-                        stream_failure_is_retryable(code.as_deref(), message.as_deref());
+                    // 预读还没提交给 Codex：流内拒收推理明文（#2917）就清空后对同一候选重发。
+                    if foreign_reasoning_handled
+                        && !reasoning_content_retried
+                        && crate::foreign_reasoning::is_reasoning_content_stream_failure(
+                            code.as_deref(),
+                            message.as_deref(),
+                            &upstream_body,
+                        )
+                        && prepare_reasoning_content_retry(
+                            &relay,
+                            &mut upstream_body,
+                            "stream",
+                            is_stream,
+                            &mut reasoning_content_retried,
+                            &mut retry_reasons,
+                            &foreign_scope,
+                        )
+                    {
+                        candidate_index = attempt;
+                        continue 'request_attempts;
+                    }
+                    // 预读还没提交给 Codex：流内拒收加密内容就去掉一批后对同一候选重发。
+                    if foreign_stream_watch
+                        && crate::foreign_reasoning::is_unverifiable_stream_failure(
+                            code.as_deref(),
+                            message.as_deref(),
+                        )
+                        && prepare_foreign_reasoning_retry(
+                            &relay,
+                            &mut upstream_body,
+                            message.as_deref().or(code.as_deref()).unwrap_or(""),
+                            "stream",
+                            is_stream,
+                            &mut foreign_retries,
+                            &mut retry_reasons,
+                            &foreign_scope,
+                            &mut foreign_compaction_dropped,
+                        )
+                    {
+                        candidate_index = attempt;
+                        continue 'request_attempts;
+                    }
+                    // 没开「请求避震」时这里只是为 #2777 预读，其它失败照旧原样交给 Codex。
+                    let retryable = auto_retry.is_some()
+                        && stream_failure_is_retryable(code.as_deref(), message.as_deref());
                     let _ = crate::diagnostic_log::append_diagnostic_log(
                         "protocol_proxy.upstream_stream_failed",
                         json!({
@@ -4434,8 +4978,7 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
         // 成功，或重试预算用尽：把（最后一个）上游响应交给 Codex。
         // 请求了 SSE 的兼容上游也可能返回 JSON 摘要；让调用方选择 JSON 包装器。
         request_trace.attempts = request_attempt as u32;
-        request_trace.auto_retries = retry_reasons.len() as u32;
-        request_trace.retry_reasons = retry_reasons.clone();
+        fill_retry_trace(&mut request_trace, &retry_reasons, foreign_compaction_dropped);
         let json_compaction = is_compaction_request
             && content_type
                 .split(';')
@@ -4461,6 +5004,137 @@ async fn open_responses_proxy_request_with_settings_and_user_agent(
     }
 }
 
+/// 被拒记忆的作用域（#2777）：供应商 + 这次实际使用的凭据。官方登录成员按账号 id，
+/// 其它按发出去的 Key（网关展开多 Key 时 `relay.api_key` 已换成这个候选的 Key）；
+/// 都拿不到时退回只按供应商。
+fn foreign_reasoning_scope(
+    relay: &crate::settings::RelayProfile,
+    official_credential: Option<&crate::official_login::OfficialCredential>,
+) -> String {
+    let credential = match official_credential {
+        Some(credential) => credential.account_id.as_str(),
+        None => relay.api_key.as_str(),
+    };
+    crate::foreign_reasoning::memory_scope(&relay.id, Some(credential))
+}
+
+/// 去掉别家签发的压缩上下文会丢掉压缩前的对话内容：记诊断日志，便于事后查明为什么上游「忘了」前文。
+fn log_foreign_compaction_dropped(
+    relay: &crate::settings::RelayProfile,
+    dropped: usize,
+    stage: &str,
+) {
+    let _ = crate::diagnostic_log::append_diagnostic_log(
+        "protocol_proxy.foreign_compaction_dropped",
+        json!({
+            "relayId": relay.id,
+            "relayName": relay.name,
+            "dropped": dropped,
+            "stage": stage
+        }),
+    );
+}
+
+/// 把重试原因写进请求日志轨迹。去掉过别家压缩上下文时追加
+/// [`crate::foreign_reasoning::COMPACTION_DROPPED_REASON`]，它只是说明，不计入自动重试次数。
+fn fill_retry_trace(
+    trace: &mut crate::request_log::RequestTrace,
+    retry_reasons: &[String],
+    foreign_compaction_dropped: bool,
+) {
+    trace.auto_retries = retry_reasons.len() as u32;
+    trace.retry_reasons = retry_reasons.to_vec();
+    if foreign_compaction_dropped {
+        trace
+            .retry_reasons
+            .push(crate::foreign_reasoning::COMPACTION_DROPPED_REASON.to_string());
+    }
+}
+
+/// 上游拒收了别家签发的加密内容（#2777）：按报错去掉一批加密项并记住被这家（`scope`，见
+/// [`foreign_reasoning_scope`]）拒收过，调用方随后对同一候选重发——重发时请求从头重建，
+/// [`crate::foreign_reasoning::strip_remembered`] 会把记住的项提前去掉。
+/// 返回 `false` 表示已经没有可去的项，错误照常交回。
+#[allow(clippy::too_many_arguments)]
+fn prepare_foreign_reasoning_retry(
+    relay: &crate::settings::RelayProfile,
+    upstream_body: &mut Value,
+    error_text: &str,
+    stage: &str,
+    is_stream: bool,
+    foreign_retries: &mut u32,
+    retry_reasons: &mut Vec<String>,
+    scope: &str,
+    foreign_compaction_dropped: &mut bool,
+) -> bool {
+    let removed = crate::foreign_reasoning::strip_rejected_batch(scope, upstream_body, error_text);
+    if removed.total() == 0 {
+        return false;
+    }
+    *foreign_retries += 1;
+    let _ = crate::diagnostic_log::append_diagnostic_log(
+        "protocol_proxy.foreign_reasoning_retry",
+        json!({
+            "relayId": relay.id,
+            "relayName": relay.name,
+            "stripped": removed.total(),
+            "compaction": removed.compaction,
+            "stage": stage,
+            "retry": *foreign_retries,
+            "stream": is_stream
+        }),
+    );
+    if removed.compaction > 0 {
+        // 重发时按记忆再提前去掉同一批，不重复记日志。
+        *foreign_compaction_dropped = true;
+        log_foreign_compaction_dropped(relay, removed.compaction, stage);
+    }
+    retry_reasons.push(crate::foreign_reasoning::RETRY_REASON.to_string());
+    true
+}
+
+/// 上游拒收历史里的推理内容属于哪一类。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistoryRejection {
+    /// 别家签发的加密内容校验不过（#2777）。
+    EncryptedContent,
+    /// 推理项不许带明文 content（#2917）。
+    ReasoningContent,
+}
+
+/// 上游不收推理项的明文 `content`（#2917，DeepSeek / GLM 转换回来的思考过程）：清空所有推理项的
+/// `content` 并记住这家（`scope`，见 [`foreign_reasoning_scope`]）的这个模型不收，调用方随后对同一候选
+/// 重发——重发时请求从头重建，[`crate::foreign_reasoning::strip_remembered_reasoning_content`] 会再清空。
+/// 返回 `false` 表示已经没有可清的，错误照常交回。
+fn prepare_reasoning_content_retry(
+    relay: &crate::settings::RelayProfile,
+    upstream_body: &mut Value,
+    stage: &str,
+    is_stream: bool,
+    reasoning_content_retried: &mut bool,
+    retry_reasons: &mut Vec<String>,
+    scope: &str,
+) -> bool {
+    let emptied = crate::foreign_reasoning::strip_rejected_reasoning_content(scope, upstream_body);
+    if emptied == 0 {
+        return false;
+    }
+    *reasoning_content_retried = true;
+    let _ = crate::diagnostic_log::append_diagnostic_log(
+        "protocol_proxy.reasoning_content_retry",
+        json!({
+            "relayId": relay.id,
+            "relayName": relay.name,
+            "model": upstream_body.get("model").and_then(Value::as_str).unwrap_or(""),
+            "emptied": emptied,
+            "stage": stage,
+            "stream": is_stream
+        }),
+    );
+    retry_reasons.push(crate::foreign_reasoning::CONTENT_RETRY_REASON.to_string());
+    true
+}
+
 /// xAI 的 Responses 接口（api.x.ai 与 SuperGrok 订阅代理）只认 function 等内置工具类型，
 /// 不认 Codex 的 custom 工具、namespace、客户端执行的 tool_search 等，请求要先整理。
 fn upstream_rejects_custom_tools(relay: &crate::settings::RelayProfile) -> bool {
@@ -4472,6 +5146,33 @@ fn upstream_rejects_custom_tools(relay: &crate::settings::RelayProfile) -> bool 
                 .iter()
                 .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
         })
+}
+
+/// 只处理 Responses `input[].content[]` 与 `function_call_output.output[]`
+/// 里的 `input_image`；其他协议中的图片块保持原样。
+fn strip_input_image_details(body: &mut Value) -> bool {
+    let Some(items) = body.get_mut("input").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    let mut changed = false;
+    for item in items {
+        for parts_key in ["content", "output"] {
+            let Some(parts) = item.get_mut(parts_key).and_then(Value::as_array_mut) else {
+                continue;
+            };
+            for part in parts {
+                if part.get("type").and_then(Value::as_str) != Some("input_image") {
+                    continue;
+                }
+                let Some(part) = part.as_object_mut() else {
+                    continue;
+                };
+                changed |= part.remove("detail").is_some();
+            }
+        }
+    }
+
+    changed
 }
 
 /// 目录外模型名 → 当前供应商默认模型的映射（#1183 / #1446 / #1457）。
@@ -5289,6 +5990,14 @@ async fn upstream_request_parts(
     ) {
         request_json["model"] = json!(auto_review_model);
     }
+    // 部分 Responses 上游不认 Codex 的 input_image.detail（#2870），收到会返回
+    // 泛化的 invalid_request。供应商级开关打开后在转发前剥离。
+    if relay.strips_responses_image_detail() && strip_input_image_details(&mut request_json) {
+        let _ = crate::diagnostic_log::append_diagnostic_log(
+            "protocol_proxy.strip_responses_image_detail",
+            json!({ "relayId": relay.id }),
+        );
+    }
     let model = request_json.get("model").and_then(Value::as_str).unwrap_or("");
     let compatibility_enabled = relay.request_compatibility_enabled();
     let reasoning_mode = if compatibility_enabled { relay.model_reasoning_parameters(model) } else { "auto" }.to_string();
@@ -5305,7 +6014,12 @@ async fn upstream_request_parts(
             json!({ "relayId": relay.id }),
         );
     }
+    // 拓展用 gateway.replaces 关掉 builtin:request-conversion：请求体保持 Responses 形状交给 upstream 段，
+    // 由拓展转成上游协议（端点仍按供应商协议选；响应仍由 Codex++ 按上游协议转回 Responses）。
+    let request_conversion =
+        !crate::extension_gateway::builtin_replaced("builtin:request-conversion");
     let mut body = match relay.protocol {
+        _ if !request_conversion => request_json,
         RelayProtocol::Responses => request_json,
         RelayProtocol::ChatCompletions => responses_to_chat_completions_with_options(
             request_json,
@@ -5319,14 +6033,18 @@ async fn upstream_request_parts(
             )?
         }
     };
-    if relay.protocol == RelayProtocol::ChatCompletions
+    if request_conversion
+        && relay.protocol == RelayProtocol::ChatCompletions
         && prompt_prefix_stabilizer_enabled(relay)
     {
         stabilize_chat_prompt_prefix(&mut body);
     }
     if reasoning_mode == "omit" {
         strip_reasoning_parameters(&mut body);
-    } else if reasoning_mode == "passthrough" && relay.protocol == RelayProtocol::ChatCompletions {
+    } else if request_conversion
+        && reasoning_mode == "passthrough"
+        && relay.protocol == RelayProtocol::ChatCompletions
+    {
         strip_reasoning_parameters(&mut body);
         if let Some(effort) = requested_effort { body["reasoning_effort"] = effort; }
     }
@@ -5338,8 +6056,10 @@ async fn upstream_request_parts(
         // （`tools` 为空），所以官方成员的每个压缩请求都会被拒。
         // 这里只对「完全没有声明工具」的官方登录请求自动补齐：补完 tool_choice 会被
         // 置为 none（模型不能真正调用搜索），带工具的普通轮次保持原样。
+        // 拓展用 gateway.replaces 关掉 builtin:official-shaping 时不自动补，由拓展在 upstream 段整理。
         let official_auto_repair = official_base.is_some()
             && !legacy_compact_path
+            && !crate::extension_gateway::builtin_replaced("builtin:official-shaping")
             && request_declares_no_tools(&body);
         let opt_in_repair = relay.web_search_history_compat_enabled() && !legacy_compact_path;
         if (opt_in_repair || official_auto_repair) && ensure_web_search_tool_for_history(&mut body)
@@ -5488,6 +6208,11 @@ fn build_responses_upstream_request(
         official_credential,
     );
     builder = with_client_session_headers(builder, relay, session_headers);
+    // 转给 Codex++ 自己的本机网关时打上标记：这一层已经跑过拓展的网关中间件，网关那层不再跑一遍。
+    // 只发往本机回环地址，外部中转站看不到这个头。
+    if is_local_protocol_proxy_base_url(endpoint) {
+        builder = builder.header(crate::extension_gateway::EXTENSIONS_APPLIED_HEADER, "1");
+    }
     if relay.protocol == crate::settings::RelayProtocol::AnthropicMessages {
         // 1M 上下文 / Claude Code 身份都靠 anthropic-beta 表达；用户显式配了该头就不插手。
         let has_custom_beta = relay
@@ -5515,8 +6240,49 @@ fn build_responses_upstream_request(
         if let Some(value) = beta_features.filter(|value| !value.is_empty()) {
             builder = builder.header("x-codex-beta-features", value);
         }
+        // 官方登录通道自己定 originator 等身份头，不叠加客户端带来的。
+        if official_credential.is_none() {
+            builder = with_client_identity_headers(
+                builder,
+                relay,
+                session_headers.client_identity,
+                beta_features.is_some_and(|value| !value.is_empty()),
+            );
+        }
     }
     Ok(builder)
+}
+
+/// Codex 的客户端身份头（#2783）：供应商显式配了同名头时以供应商为准，避免发出两个同名头。
+fn with_client_identity_headers(
+    mut builder: reqwest::RequestBuilder,
+    relay: &crate::settings::RelayProfile,
+    identity: &[(String, String)],
+    beta_features_sent: bool,
+) -> reqwest::RequestBuilder {
+    for (name, value) in identity {
+        // 名单外的头一律不发；调用方传进来的也再核对一次。
+        if !CODEX_CLIENT_IDENTITY_HEADERS
+            .iter()
+            .any(|allowed| name.eq_ignore_ascii_case(allowed))
+        {
+            continue;
+        }
+        if beta_features_sent && name.eq_ignore_ascii_case("x-codex-beta-features") {
+            continue;
+        }
+        if relay
+            .custom_headers
+            .iter()
+            .any(|header| header.key.trim().eq_ignore_ascii_case(name))
+        {
+            continue;
+        }
+        if let Ok(value) = reqwest::header::HeaderValue::from_str(value.trim()) {
+            builder = builder.header(name.as_str(), value);
+        }
+    }
+    builder
 }
 
 fn upstream_request_builder(
@@ -5532,6 +6298,13 @@ fn upstream_request_builder(
         .header(reqwest::header::CONTENT_TYPE, "application/json");
     builder = match official_credential {
         Some(credential) => with_official_login_auth(builder, relay, credential),
+        // 拓展关掉了 builtin:auth-headers：只带供应商自定义头，鉴权头由拓展的 upstream 段给。
+        // 转给 Codex++ 本机网关的这一跳仍带网关令牌，否则网关会拒收。
+        None if !is_local_protocol_proxy_base_url(endpoint)
+            && crate::extension_gateway::builtin_replaced("builtin:auth-headers") =>
+        {
+            crate::relay_headers::apply_headers(builder, &relay.custom_headers)
+        }
         None => with_relay_auth(builder, relay),
     };
     if is_stream {
@@ -6087,6 +6860,8 @@ struct ChatSseState {
     tools: BTreeMap<usize, ToolCallState>,
     output_items: Vec<(u32, Value)>,
     latest_usage: Option<Value>,
+    /// 上游原始 usage，逐块合并：Anthropic 的输入在 message_start、输出在 message_delta 里分开到。
+    upstream_usage: Option<Value>,
     finish_reason: Option<String>,
     tool_context: CodexToolContext,
     original_request: Option<Value>,
@@ -6107,6 +6882,7 @@ impl Default for ChatSseState {
             tools: BTreeMap::new(),
             output_items: Vec::new(),
             latest_usage: None,
+            upstream_usage: None,
             finish_reason: None,
             tool_context: CodexToolContext::default(),
             original_request: None,
@@ -6140,6 +6916,12 @@ impl ChatSseState {
 
         if let Some(usage) = chunk.get("usage").filter(|value| !value.is_null()) {
             self.latest_usage = Some(chat_usage_to_responses_usage(Some(usage)));
+            match (self.upstream_usage.as_mut(), usage.as_object()) {
+                (Some(Value::Object(merged)), Some(fields)) => {
+                    merged.extend(fields.iter().map(|(key, value)| (key.clone(), value.clone())));
+                }
+                _ => self.upstream_usage = Some(usage.clone()),
+            }
         }
 
         let Some(choice) = chunk
@@ -7117,8 +7899,21 @@ fn normalize_responses_item_id(item: &mut Value) {
     } else {
         suffix
     };
-    item["id"] = json!(format!("{prefix}{suffix}"));
+    // 压缩条目的 id 可能是上游签发的不透明包装（不带任何已知前缀、长达数百字符），
+    // 它只认原样回传；加前缀会超过 Responses 的 64 字符上限而整单 400（#2891）。
+    if item_type == "compaction" && suffix == id {
+        return;
+    }
+    let normalized = format!("{prefix}{suffix}");
+    // 改写后超过 64 字符的一律不动：上游按长度拒绝比按前缀拒绝更确定。
+    if normalized.len() > RESPONSES_ITEM_ID_MAX_LEN && normalized.len() > id.len() {
+        return;
+    }
+    item["id"] = json!(normalized);
 }
+
+/// Responses 接口对 `input[N].id` 的长度上限。
+const RESPONSES_ITEM_ID_MAX_LEN: usize = 64;
 
 fn append_responses_input(input: &Value, messages: &mut Vec<Value>) -> anyhow::Result<()> {
     // encrypted_content 片段可能携带无法在 Chat 协议里表达的 opaque 内容，报错向上传播（fail loud）。
@@ -11672,6 +12467,27 @@ mod proxy_auto_retry_tests {
     }
 
     #[test]
+    fn stream_failure_payload_reads_string_error_as_message() {
+        // xAI 可能把 error 直接写成字符串，code 放在顶层。
+        let block = "event: error\ndata: {\"type\":\"error\",\"code\":\"Client specified an invalid argument\",\"error\":\"Could not decrypt the provided encrypted_content.\"}";
+        let (code, message) = stream_failure_payload(block);
+        assert_eq!(code.as_deref(), Some("Client specified an invalid argument"));
+        assert_eq!(
+            message.as_deref(),
+            Some("Could not decrypt the provided encrypted_content.")
+        );
+        assert!(crate::foreign_reasoning::is_unverifiable_stream_failure(
+            code.as_deref(),
+            message.as_deref()
+        ));
+        // 包在 response 里的字符串 error 也一样。
+        let nested = "data: {\"type\":\"response.failed\",\"response\":{\"error\":\"upstream boom\"}}";
+        let (code, message) = stream_failure_payload(nested);
+        assert_eq!(code, None);
+        assert_eq!(message.as_deref(), Some("upstream boom"));
+    }
+
+    #[test]
     fn stream_failure_payload_reads_top_level_error_shape() {
         let block = "data: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad input\"}}";
         let (code, message) = stream_failure_payload(block);
@@ -11746,6 +12562,8 @@ pub(crate) struct ResponsesSseTransformer {
     apply_patch_declared_as_function: bool,
     /// 从 `response.completed` 里抓到的 usage，供请求日志使用。
     usage: Option<crate::request_log::RequestUsage>,
+    final_response_usage: Option<crate::request_log::RequestUsage>,
+    final_response_invalid: bool,
     /// 终态失败事件里的 code/message 摘要。只进请求日志与诊断日志，
     /// 不拼进 failure 原因（原因会随 SSE 回给客户端，不能泄露上游 payload）。
     failure_detail: Option<String>,
@@ -12020,7 +12838,10 @@ impl ResponsesSseTransformer {
 
     fn observe_event_type(&mut self, event_type: &str) {
         match event_type {
-            "response.completed" => self.completed = true,
+            "response.completed" => {
+                self.completed = true;
+                self.final_response_usage = None;
+            }
             "response.failed" => {
                 self.fail("原生 Responses 上游返回 response.failed".to_string())
             }
@@ -12041,6 +12862,16 @@ impl ResponsesSseTransformer {
     /// 取出 `response.completed` 里捕获的 usage（请求日志用）。
     pub(crate) fn take_usage(&mut self) -> Option<crate::request_log::RequestUsage> {
         self.usage.take()
+    }
+
+    pub(crate) fn final_response_usage(&self) -> Option<crate::request_log::RequestUsage> {
+        (self.completed
+            && !self.failed
+            && !self.final_response_invalid
+            && self.buf.is_empty()
+            && self.passthrough_event.is_none())
+        .then(|| self.final_response_usage.clone())
+        .flatten()
     }
 
     /// 取出终态失败的 code/message 摘要（请求日志/诊断日志用，不发给客户端）。
@@ -12074,7 +12905,10 @@ impl ResponsesSseTransformer {
     fn process_event(&mut self, event_bytes: &[u8]) -> Vec<u8> {
         let event_str = match std::str::from_utf8(event_bytes) {
             Ok(s) => s,
-            Err(_) => return event_bytes.to_vec(),
+            Err(_) => {
+                self.final_response_invalid = true;
+                return event_bytes.to_vec();
+            }
         };
 
         // 先提取 SSE event: 字段作为回退类型名（与 NativeResponsesSseObserver 一致）
@@ -12090,7 +12924,12 @@ impl ResponsesSseTransformer {
         };
         let data_json: Value = match serde_json::from_str(&data_json_str) {
             Ok(v) => v,
-            Err(_) => return event_bytes.to_vec(),
+            Err(_) => {
+                if data_json_str.trim() != "[DONE]" {
+                    self.final_response_invalid = true;
+                }
+                return event_bytes.to_vec();
+            }
         };
 
         // data JSON 的 type 优先，回退到 SSE event: 字段
@@ -12134,6 +12973,7 @@ impl ResponsesSseTransformer {
     ) -> Vec<u8> {
         self.observe_event_type(event_type);
         if event_type == "response.completed" {
+            self.final_response_usage = crate::request_log::final_response_usage(data_json);
             if let Some(usage) = crate::request_log::usage_from_response_json(data_json) {
                 self.usage = Some(usage);
             }
@@ -12740,6 +13580,68 @@ data: {"type":"response.output_item.done","item":{"type":"function_call","name":
     }
 
     #[test]
+    fn final_response_stream_evidence_requires_complete_terminal_payload() {
+        let completed = b"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":12,\"output_tokens\":3,\"input_tokens_details\":{\"cached_tokens\":0}}}}\n\n";
+        let mut final_stream = ResponsesSseTransformer::default();
+        for chunk in completed.chunks(7) {
+            final_stream.push_bytes(chunk);
+        }
+        assert_eq!(
+            final_stream.final_response_usage().unwrap().input_tokens,
+            12
+        );
+        assert!(final_stream.finish().is_none());
+
+        for suffix in [
+            &b"data: {\"type\":\"response.incomplete\"}\n\n"[..],
+            &b"data: {\"type\":\"response.failed\"}\n\n"[..],
+            &b"data: {\"type\":\"error\"}\n\n"[..],
+            &b"data: {\"type\":\"response.completed\"}\n\n"[..],
+            &b"event: response.failed\ndata: {\n\n"[..],
+            &b"event: response.completed\ndata: {\n\n"[..],
+            &b"data: {"[..],
+        ] {
+            let mut invalid = ResponsesSseTransformer::default();
+            invalid.push_bytes(completed);
+            invalid.push_bytes(suffix);
+            assert!(invalid.final_response_usage().is_none(), "{suffix:?}");
+        }
+        let mut done = ResponsesSseTransformer::default();
+        done.push_bytes(completed);
+        done.push_bytes(b"data: [DONE]\n\n");
+        assert_eq!(done.final_response_usage().unwrap().input_tokens, 12);
+        for body in [
+            &completed[..completed.len() - 2],
+            &b"data: [DONE]\n\n"[..],
+            &b"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":12,\"output_tokens\":3}}}\n\n"[..],
+        ] {
+            let mut invalid = ResponsesSseTransformer::default();
+            invalid.push_bytes(body);
+            assert!(invalid.final_response_usage().is_none());
+        }
+        let mut oversized = ResponsesSseTransformer::default();
+        oversized.push_bytes(completed);
+        oversized.push_bytes(&oversized_event("response.completed", "fixture"));
+        assert!(
+            oversized.final_response_usage().is_none(),
+            "oversized terminal cannot reuse earlier usage"
+        );
+
+        let mut discarded_attempt = ResponsesSseTransformer::default();
+        discarded_attempt.push_bytes(b"data: {\"type\":\"response.failed\",\"response\":{\"usage\":{\"input_tokens\":999,\"output_tokens\":999}}}\n\n");
+        assert!(discarded_attempt.final_response_usage().is_none());
+        let mut returned_attempt = ResponsesSseTransformer::default();
+        returned_attempt.push_bytes(completed);
+        assert_eq!(
+            returned_attempt
+                .final_response_usage()
+                .unwrap()
+                .input_tokens,
+            12
+        );
+    }
+
+    #[test]
     fn error_event_failure_detail_is_kept_out_of_client_facing_reason() {
         let mut t = ResponsesSseTransformer::default();
         t.push_bytes(b"event: error\ndata:{\"type\":\"error\",\"error\":{\"code\":\"server_error\",\"message\":\"upstream exploded\"}}\n\n");
@@ -13035,6 +13937,110 @@ mod parallel_tool_call_pairing_tests {
         assert_eq!(body["tool_choice"]["tools"], json!([{"type": "function", "name": "exec"}]));
         let mut untouched = json!({"tools": [{"type": "function", "name": "exec"}], "tool_choice": "auto"});
         assert!(!strip_image_generation_tool(&mut untouched));
+    }
+
+    /// #2870：供应商开关打开时剥离 `input_image.detail`；默认关闭保持 OpenAI 语义。
+    #[tokio::test]
+    async fn responses_strips_input_image_detail_only_when_enabled() {
+        let body = || json!({
+            "model": "glm-5.3-flash",
+            "input": [
+                {"type": "message", "role": "user", "content": [
+                    {"type": "input_text", "text": "look"},
+                    {"type": "input_image", "image_url": "[image omitted]", "detail": "original"}
+                ]}
+            ]
+        });
+
+        let mut enabled = crate::settings::RelayProfile {
+            protocol: RelayProtocol::Responses,
+            relay_mode: crate::settings::RelayMode::PureApi,
+            base_url: "https://open.bigmodel.cn/api/v1".into(),
+            api_key: "sk-test".into(),
+            ..Default::default()
+        };
+        assert!(!enabled.strips_responses_image_detail());
+        let (_, out, _, _) = upstream_request_parts(
+            &enabled,
+            body(),
+            "/v1/responses",
+            None,
+            false,
+            None,
+            ProxySessionHeaders::default(),
+        ).await.unwrap();
+        assert_eq!(out["input"][0]["content"][1]["detail"], "original");
+
+        enabled.strip_responses_image_detail = true;
+        assert!(enabled.strips_responses_image_detail());
+        let (_, out, _, _) = upstream_request_parts(
+            &enabled,
+            body(),
+            "/v1/responses",
+            None,
+            false,
+            None,
+            ProxySessionHeaders::default(),
+        ).await.unwrap();
+        let image = &out["input"][0]["content"][1];
+        assert_eq!(image["type"], "input_image");
+        assert!(image.get("detail").is_none(), "{image}");
+    }
+
+    /// 开关打开后，tool 输出里的 `input_image.detail` 也一并剥离；
+    /// `function_call_output.output[]` 与普通消息一起剥离。
+    #[tokio::test]
+    async fn responses_strips_tool_output_image_detail_when_enabled() {
+        let mut relay = crate::settings::RelayProfile {
+            protocol: RelayProtocol::Responses,
+            relay_mode: crate::settings::RelayMode::PureApi,
+            base_url: "https://open.bigmodel.cn/api/v1".into(),
+            api_key: "sk-test".into(),
+            ..Default::default()
+        };
+        relay.strip_responses_image_detail = true;
+        let body = json!({
+            "model": "glm-5.3-flash",
+            "input": [
+                {"type": "function_call", "call_id": "call_read", "name": "view_image", "arguments": "{}"},
+                {"type": "function_call_output", "call_id": "call_read", "output": [
+                    {"type": "input_text", "text": "screenshot"},
+                    {"type": "input_image", "image_url": "[image omitted]", "detail": "original"}
+                ]}
+            ]
+        });
+        let (_, out, _, _) = upstream_request_parts(
+            &relay,
+            body,
+            "/v1/responses",
+            None,
+            false,
+            None,
+            ProxySessionHeaders::default(),
+        ).await.unwrap();
+
+        assert_eq!(out["input"][1]["type"], "function_call_output");
+        assert_eq!(out["input"][1]["output"][1]["type"], "input_image");
+        assert!(out["input"][1]["output"][1].get("detail").is_none());
+    }
+
+    /// Chat 形态的 `image_url.detail` 不在 Responses `input[].content[]` 路径内，
+    /// 兼容剥离不得碰它。
+    #[test]
+    fn image_detail_stripping_ignores_chat_image_blocks() {
+        let mut body = json!({
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "text", "text": "look"},
+                    {"type": "image_url", "image_url": {"url": "[image omitted]", "detail": "high"}}
+                ]}
+            ]
+        });
+        assert!(!strip_input_image_details(&mut body));
+        assert_eq!(
+            body["messages"][0]["content"][1]["image_url"]["detail"],
+            "high"
+        );
     }
 
     fn assert_pairing(body: &Value, expected: usize) {

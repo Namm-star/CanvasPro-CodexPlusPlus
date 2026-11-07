@@ -133,7 +133,7 @@ fn manager_keeps_a_visible_brand_tray_and_click_menu_when_hiding_the_macos_dock_
     assert!(lib_rs.contains("set_manager_activation_policy(&close_event_app, false)"));
     assert!(lib_rs.contains("set_manager_activation_policy(app_handle, true)"));
     assert!(lib_rs.contains("set_manager_activation_policy(&app_handle, false)"));
-    assert!(lib_rs.contains(".icon_as_template(false)"));
+    assert!(lib_rs.contains(".icon_as_template(true)"));
     assert!(lib_rs.contains("tauri::include_image!(\"icons/icon.png\")"));
     assert!(lib_rs.contains(".show_menu_on_left_click(true)"));
     assert!(lib_rs.contains(".tooltip(\"Codex++\")"));
@@ -198,8 +198,14 @@ fn manager_second_instance_activates_existing_macos_bundle() {
 
 #[test]
 fn manager_queues_codexplusplus_provider_urls_for_confirmation_on_startup() {
-    let main_rs = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/main.rs"))
-        .expect("read manager main.rs");
+    // 导入链接的处理抽成了 lib.rs 里的 handle_provider_import_url，启动参数与 macOS 的 Opened 事件共用。
+    let main_rs = [
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/main.rs"))
+            .expect("read manager main.rs"),
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("read manager lib.rs"),
+    ]
+    .concat();
 
     assert!(main_rs.contains("codexplusplus://"));
     assert!(main_rs.contains("provider_import::save_pending_provider_import_from_url"));
@@ -332,7 +338,7 @@ fn github_release_workflow_builds_one_universal_macos_dmg() {
 
     // 通用包：单个 job 在两个 target 上各编一遍，由 build-universal.sh
     // 用 lipo 合并。两个架构的 std 都要装。
-    assert!(workflow.contains("macos-14"));
+    assert!(workflow.contains("runs-on: macos-15"));
     assert!(workflow.contains("x86_64-apple-darwin,aarch64-apple-darwin"));
     assert!(workflow.contains("build-universal.sh \"$VERSION\""));
 
@@ -529,7 +535,9 @@ fn manager_update_install_keeps_visible_progress_bar() {
     let app_tsx = manifest_dir.parent().unwrap().join("src/App.tsx");
     let app_tsx = std::fs::read_to_string(&app_tsx).expect("read manager App.tsx");
 
-    assert!(app_tsx.contains("下载并运行安装包"));
+    // 有可用更新时后台先下好安装包：按钮按是否下好写「安装 / 下载并安装」，弹窗里写「立即安装 / 立即更新」。
+    assert!(app_tsx.contains("t(\"下载并安装\")"));
+    assert!(app_tsx.contains("t(\"立即安装\")"));
     assert!(app_tsx.contains("updateInstallProgress"));
     assert!(app_tsx.contains("安装包更新进度"));
     assert!(app_tsx.contains("completedTitle={t(\"上次更新结果\")}"));

@@ -8,7 +8,7 @@ This edition is based on **[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPl
 
 CanvasPro changes cover the default API provider, key-only setup and launch flow, verified text model presets, and edition-specific distribution materials. This repository is maintained independently by [Namm-star](https://github.com/Namm-star); it does not imply endorsement of CanvasPro by the original author. Upstream copyrights, the [AGPL-3.0-only license](LICENSE), and [third-party notices](THIRD_PARTY_NOTICES.md) are retained. See [ATTRIBUTION.md](ATTRIBUTION.md) for provenance and modification details.
 
-Before future development or releases, read the [development history](docs/development/CANVASPRO_HISTORY.md), [maintenance guide](docs/development/CANVASPRO_MAINTENANCE.md), and [current release provenance](docs/development/releases/v2.1.1-canvaspro.1.provenance.json). The [initial release record](docs/development/releases/v1.5.0-canvaspro.1.provenance.json) remains available for historical comparison.
+Before future development or releases, read the [development history](docs/development/CANVASPRO_HISTORY.md), [maintenance guide](docs/development/CANVASPRO_MAINTENANCE.md), and [current release provenance](docs/development/releases/v2.3.1-canvaspro.1.provenance.json). The [initial release record](docs/development/releases/v1.5.0-canvaspro.1.provenance.json) remains available for historical comparison.
 
 **Edition downloads: [CanvasPro Releases](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases)**. For this edition's setup, API integration, and feedback, use the CanvasPro support group below or [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues).
 
@@ -74,19 +74,19 @@ For this CanvasPro edition's setup, API keys, balance, and model access, join th
 
 Scan the QR code with WeChat on your phone, or save the image and recognize it in WeChat.
 
-<img src="docs/images/canvaspro-support-group-20261029.png" alt="CanvasPro Canvas &amp; API support group WeChat QR code" width="320">
+<img src="docs/images/canvaspro-support-group-20261107.png" alt="CanvasPro Canvas &amp; API support group WeChat QR code" width="320">
 
-Updated on **October 29, 2026**. The screenshot marks this QR code as valid **before November 5, 2026**. If it expires, use [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues) to request the latest way to join.
+Updated on **November 7, 2026**. The screenshot marks this QR code as valid **before November 14, 2026**. If it expires, use [this repository's Issues](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/issues) to request the latest way to join.
 
 When reporting a problem, include your operating system, package version, model, and error message. Do not include a complete API key.
 
 ## Upstream Sync
 
-The current release **[v2.1.1-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.1.1-canvaspro.1)** integrates upstream v2.1.1, including model catalogs, Responses and tool-call fixes, provider configuration, aggregation, isolated Codex instances, and usage indicators. Windows x64 installers, a universal Mac DMG, complete source, and checksum manifests are available on its release page.
+The current release **[v2.3.1-canvaspro.1](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.3.1-canvaspro.1)** integrates upstream v2.3.1, including model catalogs, Responses and tool-call fixes, provider configuration, aggregation, isolated Codex instances, and usage indicators. Windows x64 installers, a universal Mac DMG, complete source, and checksum manifests are available on its release page.
 
 CanvasPro remains the default provider. The unified app saves the user's own key before launching Codex. Its updater now uses this edition's repository and recognizes CanvasPro revision numbers. To upgrade from the old edition, download this repository's installer first; the old binary still has its original update source.
 
-This update also brings the upstream gateway and provider pool, older Mac blank-screen fixes, and Codex 26.10 compatibility. The main overview retains CanvasPro setup using just the user's API key; gateway configuration remains available separately.
+This update includes upstream fixes for long sessions, model family switching, and stale instances. The new home page retains CanvasPro setup using the user's API key; the enhancement-only mode leaves provider setup hidden.
 
 The static model presets do not automatically track every model on the API site. Existing upstream ecosystem tools and Claude enhancements do not imply equivalent models or official applications are supplied by CanvasPro.
 

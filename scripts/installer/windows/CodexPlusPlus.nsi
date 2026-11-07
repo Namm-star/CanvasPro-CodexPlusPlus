@@ -107,7 +107,7 @@ Section "Install"
   File "${ROOT}\ATTRIBUTION.md"
   File /oname=CanvasPro使用说明.md "${ROOT}\docs\CANVASPRO.md"
   SetOutPath "$INSTDIR\images"
-  File "${ROOT}\docs\images\canvaspro-support-group-20261029.png"
+  File "${ROOT}\docs\images\canvaspro-support-group-20261107.png"
   SetOutPath "$INSTDIR"
 
   ; 只迁移确实存在的桌面入口，用户删掉的入口在升级时仍不补建（issue #2376）。
@@ -209,6 +209,7 @@ Section "Uninstall"
   Delete "$INSTDIR\images\canvaspro-support-group-20261004.png"
   Delete "$INSTDIR\images\canvaspro-support-group-20261015.png"
   Delete "$INSTDIR\images\canvaspro-support-group-20261029.png"
+  Delete "$INSTDIR\images\canvaspro-support-group-20261107.png"
   RMDir "$INSTDIR\images"
   RMDir "$INSTDIR"
 

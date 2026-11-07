@@ -1,8 +1,6 @@
 name: Release assets
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -24,11 +22,11 @@ on:
         default: false
 
 env:
-  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  RELEASE_TAG: ${{ inputs.tag }}
   NO_PROXY: 127.0.0.1,localhost,::1
 
 concurrency:
-  group: canvaspro-release-${{ github.event.release.tag_name || inputs.tag }}
+  group: canvaspro-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 permissions:
@@ -36,7 +34,7 @@ permissions:
 
 jobs:
   windows-installer:
-    if: github.event_name == 'release' || inputs.platform != 'macos'
+    if: inputs.platform != 'macos'
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -72,6 +70,8 @@ jobs:
           }
           if (-not $makensis) { throw "NSIS 安装失败或编译器不可用，停止发布构建。" }
 
+      - name: Verify version metadata
+        run: node scripts/release-meta.mjs check "$env:RELEASE_TAG"
       - name: Frontend verification and build
         working-directory: apps/codex-plus-manager
         run: |
@@ -100,7 +100,7 @@ jobs:
           Copy-Item LICENSE,THIRD_PARTY_NOTICES.md,ATTRIBUTION.md dist/windows/app/
           Copy-Item docs/CANVASPRO.md dist/windows/app/CanvasPro使用说明.md
           New-Item -ItemType Directory -Force dist/windows/app/images | Out-Null
-          Copy-Item docs/images/canvaspro-support-group-20261029.png dist/windows/app/images/
+          Copy-Item docs/images/canvaspro-support-group-20261107.png dist/windows/app/images/
           if ((Get-ChildItem dist/windows/app -Filter *.exe).Count -ne 1) { throw 'Expected one unified application' }
           Compress-Archive -Path dist/windows/app/* -DestinationPath "dist/windows/CanvasPro-CodexPlusPlus-$version-windows-x64.zip"
           git archive --format=zip --output="dist/windows/CanvasPro-CodexPlusPlus-$version-source.zip" HEAD
@@ -144,7 +144,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
+          draft: ${{ inputs.draft }}
           files: |
             dist/windows/*.exe
             dist/windows/*.zip
@@ -153,8 +153,8 @@ jobs:
 
   macos-dmg:
     name: macOS universal DMG
-    if: github.event_name == 'release' || inputs.platform != 'windows'
-    runs-on: macos-14
+    if: inputs.platform != 'windows'
+    runs-on: macos-15
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -166,6 +166,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - name: Verify version metadata
+        run: node scripts/release-meta.mjs check "$RELEASE_TAG"
       - name: Frontend build
         working-directory: apps/codex-plus-manager
         run: |
@@ -188,6 +190,7 @@ jobs:
             test -f "$app/Contents/Resources/LICENSE"
             test -f "$app/Contents/Resources/ATTRIBUTION.md"
             test -f "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
+            cmp docs/images/canvaspro-support-group-20261107.png "$app/Contents/Resources/images/canvaspro-support-group-20261107.png"
             executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
             lipo "$app/Contents/MacOS/$executable" -verify_arch x86_64 arm64
             codesign --verify --deep --strict "$app"
@@ -206,7 +209,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
+          draft: ${{ inputs.draft }}
           files: |
             dist/macos/*.dmg
             dist/macos/*manifest.json
@@ -256,7 +259,7 @@ jobs:
           TAG="$RELEASE_TAG"
           gh release upload "$TAG" latest.json --clobber --repo "$REPO"
       - name: Publish verified draft
-        if: github.event_name == 'workflow_dispatch' && inputs.draft && inputs.publish
+        if: inputs.draft && inputs.publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}

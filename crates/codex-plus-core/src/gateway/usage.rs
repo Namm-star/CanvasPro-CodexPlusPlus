@@ -451,6 +451,7 @@ mod tests {
                 reasoning_tokens: 1,
             }),
             cache_hit_ratio: None,
+            final_response_evidence: None,
             agent: agent.map(str::to_string),
         }
     }
@@ -491,6 +492,8 @@ mod tests {
             model_windows: Default::default(),
             context_window: None,
             proxy: String::new(),
+            key_rpm: None,
+            key_concurrency: None,
             price: Some(ProviderPrice {
                 currency: "cny".to_string(),
                 input: 2.0,
@@ -500,6 +503,8 @@ mod tests {
             upstream_new: Vec::new(),
             upstream_gone: Vec::new(),
             models_checked_at_ms: 0,
+            newapi_access: None,
+            upstream_meta: Default::default(),
             relay: RelayProfile {
                 id: "ds".to_string(),
                 ..RelayProfile::default()

@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.1.1-canvaspro.1"
+version = "2.3.1-canvaspro.1"
 edition = "2024"
 license = "AGPL-3.0-only"
 repository = "https://github.com/Namm-star/CanvasPro-CodexPlusPlus"

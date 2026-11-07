@@ -35,3 +35,4 @@ This repository is independently maintained and does not imply authorization, pa
 保留 [AGPL-3.0-only](LICENSE) 以及 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。定制版继续以相同许可证提供源码；安装包发布时同时提供对应版本的完整源码。本文件为补充来源说明，不替代任何原有版权或许可证声明。
 
 The [AGPL-3.0-only license](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) are retained. Modified source is provided under the same license, with complete corresponding source alongside released installers. This file supplements provenance information and replaces no existing copyright or license notice.
+2026-11-07 同步 / Upstream synchronization: **v2.3.1**, commit `7d7832edfb93afbcc9759c8d970b07cbcb27ae44`；保留原作者历史与许可，适配 CanvasPro 首页接入及微信交流群二维码。

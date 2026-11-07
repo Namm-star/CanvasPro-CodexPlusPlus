@@ -6,7 +6,7 @@
 
 本仓库是 [BigPizzaV3/CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus) 的 CanvasPro 定制版，维护仓库为 [Namm-star/CanvasPro-CodexPlusPlus](https://github.com/Namm-star/CanvasPro-CodexPlusPlus)。当前目标是维护默认 CanvasPro New API 接入、仅填写用户 Key 后保存并启动的流程，以及定制版构建与发布。
 
-接手先读 [开发与发布记录](docs/development/CANVASPRO_HISTORY.md)、[维护手册](docs/development/CANVASPRO_MAINTENANCE.md) 和 [当前发布基线](docs/development/releases/v2.1.1-canvaspro.1.provenance.json)。用户教程见 [docs/CANVASPRO.md](docs/CANVASPRO.md)。首发基于 `27d50a1`，标签 `v1.5.0-canvaspro.1` 指向 `e9b6d59`；当前 `v2.1.1-canvaspro.1` 指向 `4085adcb`。以实际 tag 和 manifest 核对源码，不把旧文档当作最新线上模型清单。
+接手先读 [开发与发布记录](docs/development/CANVASPRO_HISTORY.md)、[维护手册](docs/development/CANVASPRO_MAINTENANCE.md) 和 [当前发布基线](docs/development/releases/v2.3.1-canvaspro.1.provenance.json)。用户教程见 [docs/CANVASPRO.md](docs/CANVASPRO.md)。首发基于 `27d50a1`，标签 `v1.5.0-canvaspro.1` 指向 `e9b6d59`；当前 `v2.3.1-canvaspro.1` 以发布标签和清单确定源码。以实际 tag 和 manifest 核对源码，不把旧文档当作最新线上模型清单。
 
 下述「按模型粒度配置上下文窗口与自动压缩阈值」能力是已有 fork / 上游开发内容（对应 issue #1171 / #931），继续保留，不是当前未完成的新需求。
 
@@ -81,6 +81,6 @@
 - v1.9.0-canvaspro.1 已切换定制更新源和项目 / 反馈入口，并支持 CanvasPro 修订号比较；更新时同时验收旧配置迁移和定制包选择
 - 每次迭代追加开发记录、验证结果、对应源码 / 工作流提交、发布标签和附件摘要，保留原作者署名与许可证，不写入真实凭据
 
-## 当前同步版本（2026-10-29）
+## 当前同步版本（2026-11-07）
 
-基于上游 v2.1.1 / 97278dd，应用版本 2.1.1-canvaspro.1。新版采用单一 Codex++ 应用和 Mac universal DMG，旧 manager bundle 只作隐藏兼容壳。交付前构建并以 CODEX_PLUS_STATE_DIR 和 CODEX_HOME 的隔离临时目录启动本地程序，确认进程和启动日志；不得让验证改写用户日常配置。
+基于上游 v2.3.1 / 7d7832ed，应用版本 2.3.1-canvaspro.1。新版采用单一 Codex++ 应用和 Mac universal DMG，旧 manager bundle 只作隐藏兼容壳。交付前构建并以 CODEX_PLUS_STATE_DIR 和 CODEX_HOME 的隔离临时目录启动本地程序，确认进程和启动日志；不得让验证改写用户日常配置。

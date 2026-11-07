@@ -54,7 +54,7 @@ try {
   await page.waitForFunction(n=>window.__fixtureCalls.filter(x=>x==='launch_codex_plus').length>n,first);
   const errors=await page.evaluate(()=>window.__fixtureErrors);
   assert.deepEqual(errors,[]);
-  await page.screenshot({path:'.zcode/canvaspro-211-browser.png',fullPage:true});
-  fs.writeFileSync('.zcode/browser-verification-211.json',JSON.stringify({passed:true,checks:['empty key','invalid header','save failure prevents launch','selected Responses model','save then launch','saved key reuse','no JavaScript errors'],realModelRequests:false},null,2)+'\n');
+  await page.screenshot({path:'.zcode/canvaspro-231-browser.png',fullPage:true});
+  fs.writeFileSync('.zcode/browser-verification-231.json',JSON.stringify({passed:true,checks:['empty key','invalid header','save failure prevents launch','selected Responses model','save then launch','saved key reuse','no JavaScript errors'],realModelRequests:false},null,2)+'\n');
   console.log('Browser verification passed: seven setup checks, mocked Tauri only.');
 } finally { await browser?.close(); await new Promise(resolve=>server.close(resolve)); }

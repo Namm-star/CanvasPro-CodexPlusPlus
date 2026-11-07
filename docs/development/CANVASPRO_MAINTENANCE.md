@@ -1,6 +1,6 @@
 # CanvasPro Codex++ 后续开发与发布手册
 
-更新日期：2026-10-29。适用于 CanvasPro 定制客户端。历史事实见 [开发记录](CANVASPRO_HISTORY.md)，用户教程见 [CANVASPRO.md](../CANVASPRO.md)。本次同步为 v2.1.1-canvaspro.1，最新操作变化见文末。
+更新日期：2026-11-07。适用于 CanvasPro 定制客户端。历史事实见 [开发记录](CANVASPRO_HISTORY.md)，用户教程见 [CANVASPRO.md](../CANVASPRO.md)。本次同步为 v2.3.1-canvaspro.1，最新操作变化见文末。
 
 ## 接手时确认基线
 
@@ -11,7 +11,7 @@ git status --short
 git branch --show-current
 git remote -v
 git log -8 --oneline
-git show --no-patch 'v2.1.1-canvaspro.1^{commit}'
+git show --no-patch 'v2.3.1-canvaspro.1^{commit}'
 ```
 
 `origin` 应为 `Namm-star/CanvasPro-CodexPlusPlus`，`upstream` 为 `BigPizzaV3/CodexPlusPlus`。安装包以对应 release tag 和构建清单的 `sourceCommit` 为准；开发分支可能含后续 CI 和文档变更，不能把最新 README 当作所有已安装二进制的源码。
@@ -80,7 +80,7 @@ Windows 先完成 Vite 前端和 Rust release 编译，再按现有 NSIS 脚本�
 
 ```powershell
 # 示例值，使用时替换为这次真实创建的版本标签。
-gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --ref main -f tag=v2.1.1-canvaspro.2 -f platform=all -f draft=true -f publish=true
+gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --ref main -f tag=v2.3.1-canvaspro.2 -f platform=all -f draft=true -f publish=true
 ```
 
 3. 记录工作流定义提交和实际 checkout 的源码提交。以 Windows、Mac universal 和最终 metadata job 的结果为准；保存具体 run URL。首发成功 run 为 `36994204976`，不是以后版本的测试证明。
@@ -97,7 +97,7 @@ gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --re
 
 中英文 README、`docs/CANVASPRO.md`、Release 正文和 `latest.json` 中的用户步骤应一致。统一账号注册 / 登录、密钥页按钮、钱包扣费和模型权限说明需按当次实际页面核对。
 
-当前交流入口使用微信 CanvasPro「画布&api服务群」，二维码为 `docs/images/canvaspro-support-group-20261029.png`，截图标注 2026-11-05 前有效，用户已确认平台为微信。二维码有有效期，维护时新增带日期的原图并更新当前文档、发布正文和 `latest.json`，保留历史记录与已发布安装包。未来打包脚本须与教程图片引用一致。用户反馈入口指向定制仓库。上游作者、许可证和第三方声明继续保留，赞助商展示与使用支持入口不沿用原版。
+当前交流入口使用微信 CanvasPro「画布&api服务群」，二维码为 `docs/images/canvaspro-support-group-20261107.png`，截图标注 2026-11-14 前有效，用户已确认平台为微信。二维码有有效期，维护时新增带日期的原图并更新当前文档、发布正文和 `latest.json`，保留历史记录与已发布安装包。未来打包脚本须与教程图片引用一致。用户反馈入口指向定制仓库。上游作者、许可证和第三方声明继续保留，赞助商展示与使用支持入口不沿用原版。
 
 安装包必须保留对应署名及许可文件，并提供对应源码。原项目脚本 / 皮肤市场链接属于已有生态依赖，不能与定制版更新源、作者署名或售后链接混为一类后批量替换。
 

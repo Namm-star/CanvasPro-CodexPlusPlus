@@ -3,6 +3,8 @@ window.__fixtureCalls = [];
 window.__fixtureErrors = [];
 // 引导关闭后的接入流程；引导自身由上游独立测试覆盖。
 window.localStorage.setItem("codex-plus-plus.onboarding", "1");
+window.localStorage.setItem("codex-plus-plus.agent-focus", JSON.stringify({ version: 1, mode: "all" }));
+window.localStorage.setItem("codex-plus-plus.setup", JSON.stringify({ version: 1, state: "dismissed" }));
 window.addEventListener("error", (event) => window.__fixtureErrors.push(event.message));
 window.addEventListener("unhandledrejection", (event) => window.__fixtureErrors.push(String(event.reason)));
 let fixtureSettings = {
