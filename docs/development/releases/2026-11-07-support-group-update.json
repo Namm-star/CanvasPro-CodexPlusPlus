@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "recordType": "support-documentation-update",
+  "recordedOn": "2026-11-07",
+  "timezone": "Asia/Shanghai",
+  "imageCommit": "983fb17a6916b47e39e552fc3331e615caae5234",
+  "groupName": "画布&api服务群",
+  "platform": "WeChat",
+  "platformConfirmedByUser": true,
+  "validBefore": "2026-11-14",
+  "image": {
+    "path": "docs/images/canvaspro-support-group-20261107.png",
+    "bytes": 30655,
+    "sha256": "dc6bd523a2d4644e64fa82ff639d7bfc985806991b503aff36e7a8a39c74a470",
+    "userImageUnmodified": true,
+    "publicHttpStatus": 200
+  },
+  "historicalReleaseUpdates": [
+    {
+      "tag": "v2.1.1-canvaspro.1",
+      "releaseUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.1.1-canvaspro.1",
+      "releaseAndUpdaterBodyMatch": true,
+      "otherUpdaterFieldsUnchanged": true,
+      "unchangedFixedAssetCount": 8,
+      "metadata": {
+        "name": "latest.json",
+        "bytes": 6559,
+        "sha256": "501271faf9a16a10c160226ac3ade3c2afaa72d2a9e02cfaf3a56061445ef1de"
+      }
+    },
+    {
+      "tag": "v1.9.0-canvaspro.1",
+      "releaseUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v1.9.0-canvaspro.1",
+      "releaseAndUpdaterBodyMatch": true,
+      "otherUpdaterFieldsUnchanged": true,
+      "unchangedFixedAssetCount": 8,
+      "metadata": {
+        "name": "latest.json",
+        "bytes": 6249,
+        "sha256": "c6148c40ecd15b9800d27e8c6d3188cf9d161249122436f2057378aed0e09d37"
+      }
+    },
+    {
+      "tag": "v1.5.0-canvaspro.1",
+      "releaseUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v1.5.0-canvaspro.1",
+      "releaseAndUpdaterBodyMatch": true,
+      "otherUpdaterFieldsUnchanged": true,
+      "unchangedFixedAssetCount": 12,
+      "metadata": {
+        "name": "latest.json",
+        "bytes": 7485,
+        "sha256": "bd79fcb9c4758efab4bce552747b1455f61b701fb592818947c5bb65e17ae675"
+      }
+    }
+  ],
+  "note": "Only historical Release text and mutable latest.json bodies were updated; old source tags, installers and build checksum manifests were retained."
+}

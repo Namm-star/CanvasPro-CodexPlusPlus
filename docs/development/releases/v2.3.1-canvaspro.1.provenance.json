@@ -1,0 +1,270 @@
+{
+  "schemaVersion": 1,
+  "recordType": "release-provenance",
+  "recordedOn": "2026-11-07",
+  "timezone": "Asia/Shanghai",
+  "releaseTag": "v2.3.1-canvaspro.1",
+  "applicationVersion": "2.3.1-canvaspro.1",
+  "sourceCommit": "983fb17a6916b47e39e552fc3331e615caae5234",
+  "upstreamTag": "v2.3.1",
+  "upstreamCommit": "7d7832edfb93afbcc9759c8d970b07cbcb27ae44",
+  "previousSourceCommit": "e2357eabc12b8ee61adb03a93acee59a08baf330",
+  "previousReleaseTag": "v2.1.1-canvaspro.1",
+  "releaseUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.3.1-canvaspro.1",
+  "published": true,
+  "publishedAt": "2026-11-07T10:24:53Z",
+  "workflows": [
+    {
+      "platform": "macos-universal",
+      "runId": 42361603678,
+      "runUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/42361603678",
+      "jobId": 128370985509,
+      "jobUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/42361603678/job/128370985509",
+      "workflowCommit": "983fb17a6916b47e39e552fc3331e615caae5234",
+      "sourceTag": "v2.3.1-canvaspro.1",
+      "sourceCommit": "983fb17a6916b47e39e552fc3331e615caae5234",
+      "workflowConclusion": "failure",
+      "jobConclusion": "success",
+      "canvasProConfigurationTestsPassed": 7,
+      "updaterTestsPassed": 13,
+      "initialWindowsJobFailure": "CRLF Cargo.lock version validation",
+      "bundleChecks": [
+        "arm64 and x86_64 for both bundles",
+        "Info.plist",
+        "strict ad-hoc code signatures",
+        "original QR in both bundles",
+        "hdiutil disk image verification"
+      ]
+    },
+    {
+      "platform": "windows-x64",
+      "runId": 42361866944,
+      "runUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/42361866944",
+      "jobId": 128371764895,
+      "jobUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/42361866944/job/128371764895",
+      "workflowCommit": "748528bc5acd3c5190103b20be51092b835e0cf7",
+      "sourceTag": "v2.3.1-canvaspro.1",
+      "sourceCommit": "983fb17a6916b47e39e552fc3331e615caae5234",
+      "workflowConclusion": "success",
+      "jobConclusion": "success",
+      "canvasProConfigurationTestsPassed": 7,
+      "updaterTestsPassed": 13
+    },
+    {
+      "platform": "metadata",
+      "runId": 42363767535,
+      "runUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/42363767535",
+      "jobId": 128377382606,
+      "jobUrl": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/42363767535/job/128377382606",
+      "workflowCommit": "0d5ea792a719abf2b936739d995e75a4f4525e1a",
+      "sourceTag": "v2.3.1-canvaspro.1",
+      "sourceCommit": "983fb17a6916b47e39e552fc3331e615caae5234",
+      "workflowConclusion": "success",
+      "jobConclusion": "success"
+    }
+  ],
+  "defaultProvider": {
+    "baseUrl": "https://api.canvasproai.com/v1",
+    "protocol": "responses",
+    "mode": "pure-api",
+    "models": [
+      "gpt-6.1-sol",
+      "gpt-6-sol",
+      "gpt-6-astra",
+      "gpt-5.6-sol"
+    ],
+    "catalogVerifiedDate": "2026-11-07"
+  },
+  "supportGroup": {
+    "platform": "WeChat",
+    "name": "画布&api服务群",
+    "image": "docs/images/canvaspro-support-group-20261107.png",
+    "bytes": 30655,
+    "sha256": "dc6bd523a2d4644e64fa82ff639d7bfc985806991b503aff36e7a8a39c74a470",
+    "validBefore": "2026-11-14",
+    "userImageUnmodified": true
+  },
+  "localValidation": {
+    "rust": {
+      "command": "cargo test --workspace --locked -- --test-threads=1",
+      "noProxy": "127.0.0.1,localhost,::1",
+      "fullWorkspacePassed": true,
+      "groups": 18,
+      "passed": 4731,
+      "failed": 0,
+      "ignored": 44,
+      "filtered": 0,
+      "testCommit": "0d5ea792a719abf2b936739d995e75a4f4525e1a",
+      "postTagTestOnlyFixture": "Replace unqueryable PID 123 with the current test process PID and synthetic birth ID",
+      "gatewayOwnModelTestsPassed": 10
+    },
+    "frontend": {
+      "passed": 1653,
+      "failed": 0,
+      "skipped": 2,
+      "typescript": true,
+      "viteProductionBuild": true
+    },
+    "windows": {
+      "localReleaseBuild": true,
+      "localNsisBuild": true,
+      "localNsisPayloadSha256Checks": 6
+    },
+    "workflowLint": true,
+    "versionMetadataFieldsChecked": 6,
+    "browserVerification": {
+      "passed": true,
+      "checks": [
+        "empty key",
+        "invalid header",
+        "save failure prevents launch",
+        "selected Responses model",
+        "save then launch",
+        "saved key reuse",
+        "no JavaScript errors"
+      ],
+      "realModelRequests": false
+    },
+    "nativeSmoke": {
+      "isolatedCodexHome": true,
+      "nativeUiInteractionTested": false,
+      "stoppedByVerificationHarness": true,
+      "realPaidModelRequestsMade": false,
+      "isolatedStateDir": true,
+      "isolatedWebview2UserData": true,
+      "processStarted": true,
+      "versionLogged": "2.3.1-canvaspro.1",
+      "sourceCommit": "983fb17a6916b47e39e552fc3331e615caae5234",
+      "officialCodexLaunchedByVerification": false
+    },
+    "downloadedAttachments": "All nine byte lengths and SHA-256 match",
+    "sourceZipIntegrity": "7-Zip test passed",
+    "windowsPayloadAndQr": "CI setup and ZIP match; QR matches original"
+  },
+  "buildManifests": [
+    {
+      "tag": "v2.3.1-canvaspro.1",
+      "version": "2.3.1-canvaspro.1",
+      "platform": "windows-x64",
+      "repository": "Namm-star/CanvasPro-CodexPlusPlus",
+      "sourceCommit": "983fb17a6916b47e39e552fc3331e615caae5234",
+      "upstreamCommit": "7d7832edfb93afbcc9759c8d970b07cbcb27ae44",
+      "node": "v24.22.2",
+      "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "validation": {
+        "canvasProConfiguration": "passed",
+        "updaterRegression": "passed",
+        "installerStructure": "passed"
+      },
+      "realPaidModelRequestsMade": false,
+      "assets": [
+        {
+          "name": "CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-source.zip",
+          "bytes": 54065727,
+          "sha256": "5bed14d8dec1403099e6808abce14c345b4c096ae26f76c25c721bf3e64e53ca"
+        },
+        {
+          "name": "CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-windows-x64-setup.exe",
+          "bytes": 29083473,
+          "sha256": "dd051e99347e7fa7a7fdfff9635ebeeb6b362072203a22419aab096022a63934"
+        },
+        {
+          "name": "CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-windows-x64.zip",
+          "bytes": 42195385,
+          "sha256": "7412ef2708ac19c67d0fef0ec167611cd06c43ae1c963b8899c16b4b5ac61f35"
+        }
+      ]
+    },
+    {
+      "tag": "v2.3.1-canvaspro.1",
+      "version": "2.3.1-canvaspro.1",
+      "platform": "macos-universal",
+      "repository": "Namm-star/CanvasPro-CodexPlusPlus",
+      "sourceCommit": "983fb17a6916b47e39e552fc3331e615caae5234",
+      "upstreamCommit": "7d7832edfb93afbcc9759c8d970b07cbcb27ae44",
+      "node": "v24.22.2",
+      "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "architectures": [
+        "x86_64",
+        "arm64"
+      ],
+      "signing": "ad-hoc",
+      "appleNotarized": false,
+      "validation": {
+        "canvasProConfiguration": "passed",
+        "updaterRegression": "passed",
+        "installerStructure": "passed"
+      },
+      "realPaidModelRequestsMade": false,
+      "assets": [
+        {
+          "name": "CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-macos-universal.dmg",
+          "bytes": 100580808,
+          "sha256": "0fd08709321d9972af61ae7bf90873279d260f56dc5e2fb94463a300b6cd8908"
+        }
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "name": "CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-macos-universal.dmg",
+      "bytes": 100580808,
+      "sha256": "0fd08709321d9972af61ae7bf90873279d260f56dc5e2fb94463a300b6cd8908",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.3.1-canvaspro.1/CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-macos-universal.dmg"
+    },
+    {
+      "name": "CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-source.zip",
+      "bytes": 54065727,
+      "sha256": "5bed14d8dec1403099e6808abce14c345b4c096ae26f76c25c721bf3e64e53ca",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.3.1-canvaspro.1/CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-source.zip"
+    },
+    {
+      "name": "CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-windows-x64-setup.exe",
+      "bytes": 29083473,
+      "sha256": "dd051e99347e7fa7a7fdfff9635ebeeb6b362072203a22419aab096022a63934",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.3.1-canvaspro.1/CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-windows-x64-setup.exe"
+    },
+    {
+      "name": "CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-windows-x64.zip",
+      "bytes": 42195385,
+      "sha256": "7412ef2708ac19c67d0fef0ec167611cd06c43ae1c963b8899c16b4b5ac61f35",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.3.1-canvaspro.1/CanvasPro-CodexPlusPlus-2.3.1-canvaspro.1-windows-x64.zip"
+    },
+    {
+      "name": "latest.json",
+      "bytes": 4086,
+      "sha256": "f11695501ff7797ef80b321ec07668d13ff0dffeb3adc2202ea18139e6feecd1",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.3.1-canvaspro.1/latest.json"
+    },
+    {
+      "name": "macos-universal-build-manifest.json",
+      "bytes": 843,
+      "sha256": "076673225a7fbb25e37105dd942bff29b6bbcd547b164d4535dca4b3d92c3048",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.3.1-canvaspro.1/macos-universal-build-manifest.json"
+    },
+    {
+      "name": "SHA256SUMS-macos-universal.txt",
+      "bytes": 230,
+      "sha256": "bc0e1c71ded6bc9fa7062e902a0935e2ca44b575bbce1d9bbf9b8eab1ea9b146",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.3.1-canvaspro.1/SHA256SUMS-macos-universal.txt"
+    },
+    {
+      "name": "SHA256SUMS-windows-x64.txt",
+      "bytes": 471,
+      "sha256": "d9a708b111be3269da1e167a5e708b2b9a3a8b855db5f87653151b812d5b435c",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.3.1-canvaspro.1/SHA256SUMS-windows-x64.txt"
+    },
+    {
+      "name": "windows-x64-build-manifest.json",
+      "bytes": 1125,
+      "sha256": "8d8bc32fad2816714dcc9a1a19f1cd970274958f9f95db18a55aa6bc3c7bc4d4",
+      "url": "https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/download/v2.3.1-canvaspro.1/windows-x64-build-manifest.json"
+    }
+  ],
+  "limitations": [
+    "Mac ad-hoc signing, no Apple notarization",
+    "Intel compiled and architecture checked; no Intel runtime test",
+    "No production install, real Key or paid model call"
+  ],
+  "metadataPolicy": "Release text and latest.json are mutable documentation; later updates do not replace source tags or installers."
+}

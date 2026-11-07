@@ -204,10 +204,26 @@ Rust 初次完整检查发现两个上游测试假设问题：`work_view` 默认
 本地 release 编译和 NSIS 打包通过。用隔离状态、CODEX_HOME、WebView2 数据目录和独立端口启动本地原生程序，日志及可访问性文本均确认版本 `2.1.1-canvaspro.1`；图形截图采集超时，后续原生页面导航未完成，因此不把它描述为原生 Key / 启动端到端验收。结束验证时仅清理该次新建的测试进程，未运行安装器覆盖用户环境，未主动启动官方 Codex 或发出付费模型请求。
 
 两个历史 Release（1.9.0、1.5.0）的在线入群信息及各自 `latest.json` body 同步新微信图和有效期，固定安装包、源码和清单不变；独立记录见[2026-10-29 交流群更新](releases/2026-10-29-support-group-update.json)。发布后仅追加文档和证据，不移动新旧标签，也不因文档改动重打安装包。主项目的交接索引同步新基线，AI CanvasPro / New API 服务端与其它窗口工作树不在本次变更范围。
+
 ## 2026-11-07：同步上游 v2.3.1
 
-从定制主分支 `e2357eabc12b8ee61adb03a93acee59a08baf330` 合并上游稳定标签 v2.3.1 / `7d7832edfb93afbcc9759c8d970b07cbcb27ae44`，相对 v2.1.1 增加 581 个提交、涉及 903 个文件。统一六处版本号为 `2.3.1-canvaspro.1`，保留作者历史、默认 CanvasPro 入口和独立更新源。
+从定制主分支 `e2357eabc12b8ee61adb03a93acee59a08baf330` 合并 [2026-11-05 发布的上游稳定标签 v2.3.1](https://github.com/BigPizzaV3/CodexPlusPlus/releases/tag/v2.3.1) / `7d7832edfb93afbcc9759c8d970b07cbcb27ae44`，相对 v2.1.1 增加 581 个提交、涉及 903 个文件。统一六处版本号为 `2.3.1-canvaspro.1`，保留作者历史、默认 CanvasPro 入口和独立更新源。
 
 新版首页保留状态与常用工具，CanvasPro 面板适配首页和 Codex 概览；增强模式隐藏供应商设置，移除首页赞助推荐及其加载和悬浮提示。可用模型仍以 2026-11-07 回读的公开目录为准，四款内置预设都在列。新增网关直连保护：仅有 CanvasPro 预设但没有 Key 时不列出其直连模型，切换命令也在断开网关之前拒绝；存有 Key 时恢复显示。前端 1653 项通过、2 项上游跳过，类型检查、生产构建和七项模拟 IPC 界面检查通过。
 
 新微信原图 `canvaspro-support-group-20261107.png`（SHA-256 `dc6bd523a2d464e64fa82ff639d7bfc985806991b503aff36e7a8a39c74a470`）标注 2026-11-14 前有效，纳入 README、教程、发布说明与两平台安装包。保留历史标签和附件。发布以手动工作流构建草稿，避免公开 Release 后重复触发构建；macOS runner 更新为 macos-15，仍编译并核对 Intel / Apple Silicon 两种架构。最终运行和附件摘要随后归档。
+
+验证最终以 `cargo test --workspace --locked -- --test-threads=1` 重跑全部 18 组，4,731 项通过、44 项上游忽略、0 失败、0 额外过滤，进程级 `NO_PROXY` 仅覆盖回环地址。最初两项停止回执测试使用固定 PID 123，本机查询返回 Windows 错误 5。维护提交 `0d5ea792a719abf2b936739d995e75a4f4525e1a` 仅把测试数据改为可查询的当前进程 PID 和模拟旧出生标识；原发布标签与运行代码保持原样。网关直连模块另单跑 10 项通过。工作流通过 actionlint，六处版本号通过一致性检查。
+
+本地原生主程序编译、隔离启动与版本日志、NSIS 安装包构建与六份内容的摘要核对均通过。生产前端的七项界面交互使用模拟 IPC；实际客户端的 Key 和模型调用未验收。没有使用真实 Key、启动官方 Codex 或发出付费请求。
+
+三个历史版本的在线发布说明和 `latest.json` 已更新二维码和有效期，回读确认其余更新字段及固定附件的大小和摘要一致。记录见 [2026-11-07 交流群更新](releases/2026-11-07-support-group-update.json)。
+
+### v2.3.1-canvaspro.1 发布结论
+
+[正式版本](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/releases/tag/v2.3.1-canvaspro.1) 于北京时间 2026-11-07 18:24 公开，标签和全部安装包对应源码 `983fb17a6916b47e39e552fc3331e615caae5234`。
+
+- [Mac 通用 DMG 构建](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/42361603678/job/128370985509)成功。两个应用均验证 arm64 / x86_64、plist、许可证资料、原始二维码和严格 ad-hoc 签名，DMG 通过 `hdiutil verify`。Apple 未公证，Intel 未做真机运行验收。
+- 首次工作流的 Windows 检查因 Cargo.lock 的 CRLF 换行失败。CI 修复提交 `748528bc5acd3c5190103b20be51092b835e0cf7` 规范化换行并支持独立元数据检查。[Windows 补跑](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/42361866944/job/128371764895)使用同一源码标签并通过。Windows 和 Mac 各通过 7 项 CanvasPro 配置、13 项更新器回归。
+- [最终来源检查](https://github.com/Namm-star/CanvasPro-CodexPlusPlus/actions/runs/42363767535/job/128377382606)复核两个平台并生成 `latest.json`。九份附件逐一下载，字节数和 SHA-256 均与 GitHub 摘要一致。源码 ZIP 通过完整性检查，Windows setup 与 ZIP 的六份文件一致，内置二维码与用户原图一致。
+- GitHub 公共 Release、Windows / Mac / 源码下载和公开 `latest.json` 均返回 HTTP 200。固定源码、工具链、构建与附件摘要见 [发布基线](releases/v2.3.1-canvaspro.1.provenance.json)。

@@ -80,7 +80,7 @@ Windows 先完成 Vite 前端和 Rust release 编译，再按现有 NSIS 脚本�
 
 ```powershell
 # 示例值，使用时替换为这次真实创建的版本标签。
-gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --ref main -f tag=v2.3.1-canvaspro.2 -f platform=all -f draft=true -f publish=true
+gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --ref main -f tag=v2.3.1-canvaspro.2 -f platform=all -f draft=true -f publish=false
 ```
 
 3. 记录工作流定义提交和实际 checkout 的源码提交。以 Windows、Mac universal 和最终 metadata job 的结果为准；保存具体 run URL。首发成功 run 为 `36994204976`，不是以后版本的测试证明。
@@ -130,3 +130,10 @@ gh workflow run release-assets.yml --repo Namm-star/CanvasPro-CodexPlusPlus --re
 - 模型选择使用新版 `AppSelect`。浏览器烟测按真实的按钮 / 列表选项交互，并模拟新版本带时间戳的启动结果，不能再用旧 `launchStartedAtMs: null` 冒充启动成功。
 - core / data 的大部分测试已合并到 `tests/all/main.rs`。CanvasPro 默认配置和更新器用 `--test all canvaspro_defaults::` / `updater::`，两个平台发布工作流同步这些过滤入口。依赖独占进程的测试仍单独保留。
 - `work_view` 的单测需要显式构造官方登录供应商，以覆盖未启用纯 API 的分支；CanvasPro 安装默认本来就是 Pure API。Windows Skill 链接单测同时验证实际软链或带受控标记的回退副本及文件内容，与生产回退行为一致。
+
+## v2.3.1 同步后的操作变化
+
+- 正式发布工作流改为仅手动触发。先用 `platform=all,draft=true,publish=false` 构建草稿，核对产物后公开。Windows 与 Mac 如果分次构建，用 `platform=metadata,draft=true,publish=false` 复核两个平台的附件、源码提交及摘要并生成 `latest.json`；同一标签只允许一个工作流生成元数据。
+- 工作流从指定标签读取应用源码；如需修复 CI，记录实际工作流定义提交和构建源码提交。单独补跑 Windows 或 macOS 不会生成 `latest.json`。
+- Windows 版本检查将 Cargo.lock 换行规范化后运行，保持六处版本号与标签一致。Mac runner 使用 `macos-15`，检查两套应用中的原始二维码、双架构及 ad-hoc 签名。
+- 新版默认首页与 Codex 概览都保留 CanvasPro 快速接入。增强模式隐藏供应商设置；网关列表与直连切换都要求 CanvasPro 供应商有 Key，直连失败发生在断开网关之前。
