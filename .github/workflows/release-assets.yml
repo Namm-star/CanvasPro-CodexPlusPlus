@@ -8,10 +8,10 @@ on:
         required: true
         type: string
       platform:
-        description: Platforms to build
+        description: Platforms to build, or metadata to verify already-built packages
         type: choice
         default: all
-        options: [all, windows, macos]
+        options: [all, windows, macos, metadata]
       draft:
         description: Keep installers in a draft until checks finish
         type: boolean
@@ -26,7 +26,7 @@ env:
   NO_PROXY: 127.0.0.1,localhost,::1
 
 concurrency:
-  group: canvaspro-release-${{ inputs.tag }}
+  group: canvaspro-release-v2-${{ inputs.tag }}
   cancel-in-progress: false
 
 permissions:
@@ -34,7 +34,7 @@ permissions:
 
 jobs:
   windows-installer:
-    if: inputs.platform != 'macos'
+    if: inputs.platform == 'all' || inputs.platform == 'windows'
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -71,7 +71,17 @@ jobs:
           if (-not $makensis) { throw "NSIS 安装失败或编译器不可用，停止发布构建。" }
 
       - name: Verify version metadata
-        run: node scripts/release-meta.mjs check "$env:RELEASE_TAG"
+        shell: pwsh
+        run: |
+          @'
+          import { VERSION_FILES, readText } from "./scripts/release-meta.mjs";
+          const expected = process.env.RELEASE_TAG.replace(/^v/i, "");
+          for (const { file, read } of VERSION_FILES) {
+            const actual = read(readText(file).replaceAll("\r\n", "\n"));
+            if (actual !== expected) throw new Error(`${file}: expected ${expected}, got ${actual}`);
+          }
+          console.log(`Versions match ${expected}`);
+          '@ | node --input-type=module
       - name: Frontend verification and build
         working-directory: apps/codex-plus-manager
         run: |
@@ -153,7 +163,7 @@ jobs:
 
   macos-dmg:
     name: macOS universal DMG
-    if: inputs.platform != 'windows'
+    if: inputs.platform == 'all' || inputs.platform == 'macos'
     runs-on: macos-15
     timeout-minutes: 90
     steps:
@@ -218,7 +228,7 @@ jobs:
   latest-json:
     name: Verify release provenance and publish metadata
     needs: [windows-installer, macos-dmg]
-    if: always() && !cancelled() && (needs.windows-installer.result == 'success' || needs.windows-installer.result == 'skipped') && (needs.macos-dmg.result == 'success' || needs.macos-dmg.result == 'skipped')
+    if: always() && !cancelled() && (inputs.platform == 'all' || inputs.platform == 'metadata') && (needs.windows-installer.result == 'success' || needs.windows-installer.result == 'skipped') && (needs.macos-dmg.result == 'success' || needs.macos-dmg.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
