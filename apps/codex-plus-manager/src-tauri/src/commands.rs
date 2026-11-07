@@ -13678,7 +13678,8 @@ model_reasoning_effort = "high"
             helper_port: 19402,
             user_data_dir: data.canonicalize().unwrap(),
             browser_id: "browser-stopped".into(),
-            process_id: 123,
+            // Use a queryable PID with a synthetic birth ID to model PID reuse.
+            process_id: std::process::id(),
             process_birth_id: 456,
             executable: codex_plus_core::app_paths::build_codex_executable(&app)
                 .canonicalize()
